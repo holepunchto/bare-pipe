@@ -1,0 +1,19 @@
+{
+  "name": "@pearjs/stdio",
+  "version": "0.0.0",
+  "description": "stdio for pears",
+  "main": "index.js",
+  "dependencies": {
+    "streamx": "^2.13.2"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/holepunchto/pearjs-stdio.git"
+  },
+  "author": "Mathias Buus (@mafintosh)",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/holepunchto/pearjs-stdio/issues"
+  },
+  "homepage": "https://github.com/holepunchto/pearjs-stdio"
+}
