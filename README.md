@@ -1,15 +1,15 @@
-# stdio-streams
+# @pearjs/stdio
 
-WIP - nothing to see here
+Native standard I/O for JavaScript.
 
 ```
-npm install stdio-streams
+npm install @pearjs/stdio
 ```
 
 ## Usage
 
 ``` js
-const stdio-streams = require('stdio-streams')
+const stdio = require('@pearjs/stdio')
 ```
 
 ## License

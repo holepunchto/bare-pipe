@@ -1,6 +1,6 @@
-#include <uv.h>
 #include <js.h>
 #include <pear.h>
+#include <uv.h>
 
 typedef struct {
   uv_tty_t handle;
@@ -54,8 +54,8 @@ stdio_write (js_env_t *env, js_callback_info_t *info) {
   js_get_typedarray_info(env, argv[0], NULL, (void **) &handle, &data_len, NULL, NULL);
 
   uv_buf_t buf = {
-    .buf = data,
-    .len = data_len
+    .base = data,
+    .len = data_len,
   };
 
   uv_write(req, handle, &buf, 1, on_stdio_write);

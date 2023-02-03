@@ -1,34 +1,13 @@
-cmake_minimum_required(VERSION 3.22)
+cmake_minimum_required(VERSION 3.25)
 
-project(pearjs_stdio C CXX)
+project(pear_stdio C)
 
-execute_process(COMMAND pearjs-dev --include OUTPUT_VARIABLE PEARJS_INCLUDE)
+include(pear)
 
-include_directories(
-  pearjs_stdio
-  PUBLIC
-    "${PEARJS_INCLUDE}"
-)
+add_pear_module(pear_stdio)
 
-add_library(
-  pearjs_stdio
-  MODULE
+target_sources(
+  pear_stdio
+  PRIVATE
     binding.c
-)
-
-if(APPLE)
-  set_target_properties(
-    pearjs_stdio
-    PROPERTIES
-      LINK_FLAGS "-undefined dynamic_lookup -Xlinker -no_fixup_chains"
-  )
-endif(APPLE)
-
-set_target_properties(
-  pearjs_stdio
-  PROPERTIES
-    PREFIX ""
-    SUFFIX ".pear"
-    C_STANDARD 99
-    POSITION_INDEPENDENT_CODE 1
 )

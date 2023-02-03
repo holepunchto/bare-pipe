@@ -1,5 +1,5 @@
 const { Readable, Writable } = require('streamx')
-const binding = process.addon(__dirname)
+const binding = require('./binding')
 
 // console.log(binding)
 
