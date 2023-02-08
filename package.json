@@ -26,7 +26,6 @@
   },
   "homepage": "https://github.com/holepunchto/pearjs-stdio#readme",
   "dependencies": {
-    "@pearjs/dev": "^0.1.0",
     "streamx": "^2.13.2"
   },
   "devDependencies": {
