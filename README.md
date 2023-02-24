@@ -10,6 +10,10 @@ npm install @pearjs/pipe
 
 ``` js
 const Pipe = require('@pearjs/pipe')
+
+const stdout = new Pipe(1)
+
+stdout.write('Hello world!\n')
 ```
 
 ## License
