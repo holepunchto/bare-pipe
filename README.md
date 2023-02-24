@@ -1,15 +1,15 @@
-# @pearjs/stdio
+# @pearjs/pipe
 
-Native standard I/O for JavaScript.
+Native I/O pipes for JavaScript.
 
 ```
-npm install @pearjs/stdio
+npm install @pearjs/pipe
 ```
 
 ## Usage
 
 ``` js
-const stdio = require('@pearjs/stdio')
+const Pipe = require('@pearjs/pipe')
 ```
 
 ## License

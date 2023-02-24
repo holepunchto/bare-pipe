@@ -1,7 +1,7 @@
 {
-  "name": "@pearjs/stdio",
-  "version": "0.0.0",
-  "description": "Native standard I/O for JavaScript",
+  "name": "@pearjs/pipe",
+  "version": "1.0.0",
+  "description": "Native I/O pipes for JavaScript",
   "main": "index.js",
   "files": [
     "index.js",
@@ -11,24 +11,25 @@
     "prebuilds"
   ],
   "scripts": {
-    "test": "standard",
+    "test": "standard && pear test.js",
     "install": "pear-dev rebuild",
     "prebuild": "pear-dev prebuild"
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/holepunchto/pearjs-stdio.git"
+    "url": "https://github.com/holepunchto/pearjs-pipe.git"
   },
   "author": "Holepunch",
   "license": "MIT",
   "bugs": {
-    "url": "https://github.com/holepunchto/pearjs-stdio/issues"
+    "url": "https://github.com/holepunchto/pearjs-pipe/issues"
   },
-  "homepage": "https://github.com/holepunchto/pearjs-stdio#readme",
+  "homepage": "https://github.com/holepunchto/pearjs-pipe#readme",
   "dependencies": {
     "streamx": "^2.13.2"
   },
   "devDependencies": {
+    "brittle": "^3.2.1",
     "standard": "^17.0.0"
   }
 }
