@@ -18,4 +18,4 @@ stdout.write('Hello world!\n')
 
 ## License
 
-MIT
+Apache-2.0
