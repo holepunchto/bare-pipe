@@ -31,6 +31,16 @@ test('named pipe', (t) => {
     .end('hello from pipe\n')
 })
 
+test('tty', (t) => {
+  t.plan(1)
+
+  const stdout = new Pipe(1, { tty: true })
+
+  stdout
+    .on('close', () => t.pass('closed'))
+    .end('hello from pipe\n')
+})
+
 function name () {
   const name = 'pear-pipe-' + Math.random().toString(16).slice(2) + Math.random().toString(16).slice(2)
   return process.platform === 'win32'

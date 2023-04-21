@@ -5,6 +5,7 @@
 
 typedef struct {
   uv_pipe_t pipe;
+  uv_tty_t tty_pipe;
   uv_connect_t conn;
   uv_buf_t read_buf;
   uv_shutdown_t end;
@@ -137,18 +138,27 @@ on_alloc (uv_handle_t *handle, size_t suggested_size, uv_buf_t *buf) {
 
 static js_value_t *
 pear_pipe_init (js_env_t *env, js_callback_info_t *info) {
-  size_t argc = 8;
-  js_value_t *argv[8];
+  size_t argc = 9;
+  js_value_t *argv[9];
 
   js_get_callback_info(env, info, &argc, argv, NULL, NULL);
 
   uv_loop_t *loop;
   js_get_env_loop(env, &loop);
 
+  bool is_tty;
+  js_get_value_bool(env, argv[3], &is_tty);
+
   pear_pipe_t *self;
   js_get_typedarray_info(env, argv[0], NULL, (void **) &self, NULL, NULL, NULL);
 
-  uv_pipe_init(loop, &self->pipe, 0);
+  if (is_tty) {
+    js_get_typedarray_info(env, argv[0], NULL, (void **) &self, NULL, NULL, NULL);
+    uv_tty_init(loop, &self->tty_pipe, 0, 1);
+    uv_tty_set_mode(&self->tty_pipe, UV_TTY_MODE_RAW);
+  } else {
+    uv_pipe_init(loop, &self->pipe, 0);
+  }
 
   size_t read_buf_len;
   char *read_buf;
@@ -157,11 +167,11 @@ pear_pipe_init (js_env_t *env, js_callback_info_t *info) {
   self->read_buf = uv_buf_init(read_buf, read_buf_len);
 
   js_create_reference(env, argv[2], 1, &self->ctx);
-  js_create_reference(env, argv[3], 1, &self->on_connect);
-  js_create_reference(env, argv[4], 1, &self->on_write);
-  js_create_reference(env, argv[5], 1, &self->on_end);
-  js_create_reference(env, argv[6], 1, &self->on_read);
-  js_create_reference(env, argv[7], 1, &self->on_close);
+  js_create_reference(env, argv[4], 1, &self->on_connect);
+  js_create_reference(env, argv[5], 1, &self->on_write);
+  js_create_reference(env, argv[6], 1, &self->on_end);
+  js_create_reference(env, argv[7], 1, &self->on_read);
+  js_create_reference(env, argv[8], 1, &self->on_close);
 
   self->env = env;
 
@@ -193,8 +203,8 @@ pear_pipe_connect (js_env_t *env, js_callback_info_t *info) {
 
 static js_value_t *
 pear_pipe_open (js_env_t *env, js_callback_info_t *info) {
-  size_t argc = 2;
-  js_value_t *argv[2];
+  size_t argc = 3;
+  js_value_t *argv[3];
 
   js_get_callback_info(env, info, &argc, argv, NULL, NULL);
 
@@ -204,15 +214,20 @@ pear_pipe_open (js_env_t *env, js_callback_info_t *info) {
   uint32_t fd;
   js_get_value_uint32(env, argv[1], &fd);
 
-  uv_pipe_open(&self->pipe, fd);
+  bool is_tty;
+  js_get_value_bool(env, argv[2], &is_tty);
+
+  if (!is_tty) {
+    uv_pipe_open(&self->pipe, fd);
+  }
 
   return NULL;
 }
 
 static js_value_t *
 pear_pipe_writev (js_env_t *env, js_callback_info_t *info) {
-  size_t argc = 3;
-  js_value_t *argv[3];
+  size_t argc = 4;
+  js_value_t *argv[4];
 
   js_get_callback_info(env, info, &argc, argv, NULL, NULL);
 
@@ -239,7 +254,16 @@ pear_pipe_writev (js_env_t *env, js_callback_info_t *info) {
 
   req->data = self;
 
-  int err = uv_write(req, (uv_stream_t *) &self->pipe, bufs, nbufs, on_write);
+  bool is_tty;
+  js_get_value_bool(env, argv[3], &is_tty);
+
+  int err;
+
+  if (is_tty) {
+    err = uv_write(req, (uv_stream_t *) &self->tty_pipe, bufs, nbufs, on_write);
+  } else {
+    err = uv_write(req, (uv_stream_t *) &self->pipe, bufs, nbufs, on_write);
+  }
 
   free(bufs);
 
@@ -277,45 +301,66 @@ pear_pipe_end (js_env_t *env, js_callback_info_t *info) {
 
 static js_value_t *
 pear_pipe_resume (js_env_t *env, js_callback_info_t *info) {
-  size_t argc = 1;
-  js_value_t *argv[1];
+  size_t argc = 2;
+  js_value_t *argv[2];
 
   js_get_callback_info(env, info, &argc, argv, NULL, NULL);
 
   pear_pipe_t *self;
   js_get_typedarray_info(env, argv[0], NULL, (void **) &self, NULL, NULL, NULL);
 
-  uv_read_start((uv_stream_t *) &self->pipe, on_alloc, on_read);
+  bool is_tty;
+  js_get_value_bool(env, argv[1], &is_tty);
+
+  if (is_tty) {
+    uv_read_start((uv_stream_t *) &self->tty_pipe, on_alloc, on_read);
+  } else {
+    uv_read_start((uv_stream_t *) &self->pipe, on_alloc, on_read);
+  }
 
   return NULL;
 }
 
 static js_value_t *
 pear_pipe_pause (js_env_t *env, js_callback_info_t *info) {
-  size_t argc = 1;
-  js_value_t *argv[1];
+  size_t argc = 2;
+  js_value_t *argv[2];
 
   js_get_callback_info(env, info, &argc, argv, NULL, NULL);
 
   pear_pipe_t *self;
   js_get_typedarray_info(env, argv[0], NULL, (void **) &self, NULL, NULL, NULL);
 
-  uv_read_stop((uv_stream_t *) &self->pipe);
+  bool is_tty;
+  js_get_value_bool(env, argv[1], &is_tty);
+
+  if (is_tty) {
+    uv_read_stop((uv_stream_t *) &self->tty_pipe);
+  } else {
+    uv_read_stop((uv_stream_t *) &self->pipe);
+  }
 
   return NULL;
 }
 
 static js_value_t *
 pear_pipe_close (js_env_t *env, js_callback_info_t *info) {
-  size_t argc = 1;
-  js_value_t *argv[1];
+  size_t argc = 2;
+  js_value_t *argv[2];
 
   js_get_callback_info(env, info, &argc, argv, NULL, NULL);
 
   pear_pipe_t *self;
   js_get_typedarray_info(env, argv[0], NULL, (void **) &self, NULL, NULL, NULL);
 
-  uv_close((uv_handle_t *) &self->pipe, on_close);
+  bool is_tty;
+  js_get_value_bool(env, argv[1], &is_tty);
+
+  if (is_tty) {
+    uv_close((uv_handle_t *) &self->tty_pipe, on_close);
+  } else {
+    uv_close((uv_handle_t *) &self->pipe, on_close);
+  }
 
   return NULL;
 }

@@ -4,7 +4,7 @@ const binding = require('./binding')
 const DEFAULT_READ_BUFFER = 65536
 
 module.exports = class Pipe extends Duplex {
-  constructor (path, { readBufferSize = DEFAULT_READ_BUFFER, allowHalfOpen = true } = {}) {
+  constructor (path, { tty = false, readBufferSize = DEFAULT_READ_BUFFER, allowHalfOpen = true } = {}) {
     super({ mapWritable })
 
     const slab = Buffer.alloc(binding.sizeofPipe + binding.sizeofWrite + readBufferSize)
@@ -20,8 +20,9 @@ module.exports = class Pipe extends Duplex {
 
     this._connected = typeof path === 'number' ? 1 : 0 // unknown
     this._allowHalfOpen = allowHalfOpen
+    this._tty = tty
 
-    binding.init(this._handle, this._buffer, this,
+    binding.init(this._handle, this._buffer, this, this._tty,
       this._onconnect,
       this._onwrite,
       this._onfinal,
@@ -29,8 +30,8 @@ module.exports = class Pipe extends Duplex {
       this._onclose
     )
 
-    if (typeof path === 'number') {
-      binding.open(this._handle, path)
+    if (typeof path === 'number' || this._tty) {
+      binding.open(this._handle, path, this._tty)
     } else {
       binding.connect(this._handle, path)
     }
@@ -42,13 +43,13 @@ module.exports = class Pipe extends Duplex {
   }
 
   _read (cb) {
-    binding.resume(this._handle)
+    binding.resume(this._handle, this._tty)
     cb(null)
   }
 
   _writev (datas, cb) {
     this._writeCallback = cb
-    binding.writev(this._req, this._handle, datas)
+    binding.writev(this._req, this._handle, datas, this._tty)
   }
 
   _final (cb) {
@@ -58,7 +59,7 @@ module.exports = class Pipe extends Duplex {
 
   _destroy (cb) {
     this._destroyCallback = cb
-    binding.close(this._handle)
+    binding.close(this._handle, this._tty)
   }
 
   _continueOpen () {
@@ -116,7 +117,7 @@ module.exports = class Pipe extends Duplex {
     copy.set(this._buffer.subarray(0, read))
 
     if (this.push(copy) === false && this.destroying === false) {
-      binding.pause(this._handle)
+      binding.pause(this._handle, this._tty)
     }
   }
 
