@@ -1,6 +1,6 @@
 {
   "name": "@pearjs/pipe",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Native I/O pipes for JavaScript",
   "main": "index.js",
   "files": [
