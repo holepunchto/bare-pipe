@@ -1,3 +1,4 @@
+#include <assert.h>
 #include <js.h>
 #include <pear.h>
 #include <stdlib.h>
@@ -19,64 +20,92 @@ typedef struct {
 
 static void
 on_connect (uv_connect_t *req, int status) {
+  int err;
+
   pear_pipe_t *self = (pear_pipe_t *) req->data;
+
   js_env_t *env = self->env;
 
   js_handle_scope_t *scope;
-  js_open_handle_scope(env, &scope);
+  err = js_open_handle_scope(env, &scope);
+  assert(err == 0);
 
   js_value_t *ctx;
-  js_get_reference_value(env, self->ctx, &ctx);
+  err = js_get_reference_value(env, self->ctx, &ctx);
+  assert(err == 0);
+
   js_value_t *callback;
-  js_get_reference_value(env, self->on_connect, &callback);
+  err = js_get_reference_value(env, self->on_connect, &callback);
+  assert(err == 0);
+
   js_value_t *argv[1];
-  js_create_int32(env, status, &argv[0]);
+  err = js_create_int32(env, status, &argv[0]);
+  assert(err == 0);
 
   js_call_function(env, ctx, callback, 1, argv, NULL);
 
-  js_close_handle_scope(env, scope);
+  err = js_close_handle_scope(env, scope);
+  assert(err == 0);
 }
 
 static void
 on_write (uv_write_t *req, int status) {
+  int err;
+
   pear_pipe_t *self = (pear_pipe_t *) req->data;
 
   js_env_t *env = self->env;
 
   js_handle_scope_t *scope;
-  js_open_handle_scope(env, &scope);
+  err = js_open_handle_scope(env, &scope);
+  assert(err == 0);
 
   js_value_t *ctx;
-  js_get_reference_value(env, self->ctx, &ctx);
+  err = js_get_reference_value(env, self->ctx, &ctx);
+  assert(err == 0);
+
   js_value_t *callback;
-  js_get_reference_value(env, self->on_write, &callback);
+  err = js_get_reference_value(env, self->on_write, &callback);
+  assert(err == 0);
+
   js_value_t *argv[1];
-  js_create_int32(env, status, &argv[0]);
+  err = js_create_int32(env, status, &argv[0]);
+  assert(err == 0);
 
   js_call_function(env, ctx, callback, 1, argv, NULL);
 
-  js_close_handle_scope(env, scope);
+  err = js_close_handle_scope(env, scope);
+  assert(err == 0);
 }
 
 static void
 on_shutdown (uv_shutdown_t *req, int status) {
+  int err;
+
   pear_pipe_t *self = (pear_pipe_t *) req->data;
 
   js_env_t *env = self->env;
 
   js_handle_scope_t *scope;
-  js_open_handle_scope(env, &scope);
+  err = js_open_handle_scope(env, &scope);
+  assert(err == 0);
 
   js_value_t *ctx;
-  js_get_reference_value(env, self->ctx, &ctx);
+  err = js_get_reference_value(env, self->ctx, &ctx);
+  assert(err == 0);
+
   js_value_t *callback;
-  js_get_reference_value(env, self->on_end, &callback);
+  err = js_get_reference_value(env, self->on_end, &callback);
+  assert(err == 0);
+
   js_value_t *argv[1];
-  js_create_int32(env, status, &argv[0]);
+  err = js_create_int32(env, status, &argv[0]);
+  assert(err == 0);
 
   js_call_function(env, ctx, callback, 1, argv, NULL);
 
-  js_close_handle_scope(env, scope);
+  err = js_close_handle_scope(env, scope);
+  assert(err == 0);
 }
 
 static void
@@ -84,49 +113,76 @@ on_read (uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf) {
   if (nread == UV_EOF) nread = 0;
   else if (nread == 0) return;
 
+  int err;
+
   pear_pipe_t *self = (pear_pipe_t *) stream;
 
   js_env_t *env = self->env;
 
   js_handle_scope_t *scope;
-  js_open_handle_scope(env, &scope);
+  err = js_open_handle_scope(env, &scope);
+  assert(err == 0);
 
   js_value_t *ctx;
-  js_get_reference_value(env, self->ctx, &ctx);
+  err = js_get_reference_value(env, self->ctx, &ctx);
+  assert(err == 0);
+
   js_value_t *callback;
-  js_get_reference_value(env, self->on_read, &callback);
+  err = js_get_reference_value(env, self->on_read, &callback);
+  assert(err == 0);
+
   js_value_t *argv[1];
-  js_create_int32(env, nread, &argv[0]);
+  err = js_create_int32(env, nread, &argv[0]);
+  assert(err == 0);
 
   js_call_function(env, ctx, callback, 1, argv, NULL);
 
-  js_close_handle_scope(env, scope);
+  err = js_close_handle_scope(env, scope);
+  assert(err == 0);
 }
 
 static void
 on_close (uv_handle_t *handle) {
+  int err;
+
   pear_pipe_t *self = (pear_pipe_t *) handle;
 
   js_env_t *env = self->env;
 
   js_handle_scope_t *scope;
-  js_open_handle_scope(env, &scope);
+  err = js_open_handle_scope(env, &scope);
+  assert(err == 0);
 
   js_value_t *ctx;
-  js_get_reference_value(env, self->ctx, &ctx);
+  err = js_get_reference_value(env, self->ctx, &ctx);
+  assert(err == 0);
+
   js_value_t *callback;
-  js_get_reference_value(env, self->on_close, &callback);
+  err = js_get_reference_value(env, self->on_close, &callback);
+  assert(err == 0);
 
   js_call_function(env, ctx, callback, 0, NULL, NULL);
 
-  js_close_handle_scope(env, scope);
+  err = js_delete_reference(env, self->on_connect);
+  assert(err == 0);
 
-  js_delete_reference(env, self->on_connect);
-  js_delete_reference(env, self->on_write);
-  js_delete_reference(env, self->on_end);
-  js_delete_reference(env, self->on_read);
-  js_delete_reference(env, self->on_close);
-  js_delete_reference(env, self->ctx);
+  err = js_delete_reference(env, self->on_write);
+  assert(err == 0);
+
+  err = js_delete_reference(env, self->on_end);
+  assert(err == 0);
+
+  err = js_delete_reference(env, self->on_read);
+  assert(err == 0);
+
+  err = js_delete_reference(env, self->on_close);
+  assert(err == 0);
+
+  err = js_delete_reference(env, self->ctx);
+  assert(err == 0);
+
+  err = js_close_handle_scope(env, scope);
+  assert(err == 0);
 }
 
 static void
@@ -137,50 +193,80 @@ on_alloc (uv_handle_t *handle, size_t suggested_size, uv_buf_t *buf) {
 
 static js_value_t *
 pear_pipe_init (js_env_t *env, js_callback_info_t *info) {
+  int err;
+
   size_t argc = 8;
   js_value_t *argv[8];
 
-  js_get_callback_info(env, info, &argc, argv, NULL, NULL);
+  err = js_get_callback_info(env, info, &argc, argv, NULL, NULL);
+  assert(err == 0);
+
+  assert(argc == 8);
 
   uv_loop_t *loop;
   js_get_env_loop(env, &loop);
 
   pear_pipe_t *self;
-  js_get_typedarray_info(env, argv[0], NULL, (void **) &self, NULL, NULL, NULL);
+  err = js_get_typedarray_info(env, argv[0], NULL, (void **) &self, NULL, NULL, NULL);
+  assert(err == 0);
 
-  uv_pipe_init(loop, &self->pipe, 0);
+  err = uv_pipe_init(loop, &self->pipe, 0);
+
+  if (err < 0) {
+    js_throw_error(env, uv_err_name(err), uv_strerror(err));
+    return NULL;
+  }
 
   size_t read_buf_len;
   char *read_buf;
-  js_get_typedarray_info(env, argv[1], NULL, (void **) &read_buf, &read_buf_len, NULL, NULL);
+  err = js_get_typedarray_info(env, argv[1], NULL, (void **) &read_buf, &read_buf_len, NULL, NULL);
+  assert(err == 0);
+
+  self->env = env;
 
   self->read_buf = uv_buf_init(read_buf, read_buf_len);
 
-  js_create_reference(env, argv[2], 1, &self->ctx);
-  js_create_reference(env, argv[3], 1, &self->on_connect);
-  js_create_reference(env, argv[4], 1, &self->on_write);
-  js_create_reference(env, argv[5], 1, &self->on_end);
-  js_create_reference(env, argv[6], 1, &self->on_read);
-  js_create_reference(env, argv[7], 1, &self->on_close);
+  err = js_create_reference(env, argv[2], 1, &self->ctx);
+  assert(err == 0);
 
-  self->env = env;
+  err = js_create_reference(env, argv[3], 1, &self->on_connect);
+  assert(err == 0);
+
+  err = js_create_reference(env, argv[4], 1, &self->on_write);
+  assert(err == 0);
+
+  err = js_create_reference(env, argv[5], 1, &self->on_end);
+  assert(err == 0);
+
+  err = js_create_reference(env, argv[6], 1, &self->on_read);
+  assert(err == 0);
+
+  err = js_create_reference(env, argv[7], 1, &self->on_close);
+  assert(err == 0);
 
   return NULL;
 }
 
 static js_value_t *
 pear_pipe_connect (js_env_t *env, js_callback_info_t *info) {
+  int err;
+
   size_t argc = 2;
   js_value_t *argv[2];
 
-  js_get_callback_info(env, info, &argc, argv, NULL, NULL);
+  err = js_get_callback_info(env, info, &argc, argv, NULL, NULL);
+  assert(err == 0);
+
+  assert(argc == 2);
 
   pear_pipe_t *self;
-  js_get_typedarray_info(env, argv[0], NULL, (void **) &self, NULL, NULL, NULL);
+  err = js_get_typedarray_info(env, argv[0], NULL, (void **) &self, NULL, NULL, NULL);
+  assert(err == 0);
 
   size_t path_len = 4096;
   char path[4096];
-  js_get_value_string_utf8(env, argv[1], path, path_len, &path_len);
+  err = js_get_value_string_utf8(env, argv[1], path, path_len, &path_len);
+  assert(err == 0);
 
   uv_connect_t *conn = &self->conn;
 
@@ -193,53 +279,75 @@ pear_pipe_connect (js_env_t *env, js_callback_info_t *info) {
 
 static js_value_t *
 pear_pipe_open (js_env_t *env, js_callback_info_t *info) {
+  int err;
+
   size_t argc = 2;
   js_value_t *argv[2];
 
-  js_get_callback_info(env, info, &argc, argv, NULL, NULL);
+  err = js_get_callback_info(env, info, &argc, argv, NULL, NULL);
+  assert(err == 0);
+
+  assert(argc == 2);
 
   pear_pipe_t *self;
-  js_get_typedarray_info(env, argv[0], NULL, (void **) &self, NULL, NULL, NULL);
+  err = js_get_typedarray_info(env, argv[0], NULL, (void **) &self, NULL, NULL, NULL);
+  assert(err == 0);
 
   uint32_t fd;
-  js_get_value_uint32(env, argv[1], &fd);
+  err = js_get_value_uint32(env, argv[1], &fd);
+  assert(err == 0);
 
-  uv_pipe_open(&self->pipe, fd);
+  err = uv_pipe_open(&self->pipe, fd);
+
+  if (err < 0) {
+    js_throw_error(env, uv_err_name(err), uv_strerror(err));
+    return NULL;
+  }
 
   return NULL;
 }
 
 static js_value_t *
 pear_pipe_writev (js_env_t *env, js_callback_info_t *info) {
+  int err;
+
   size_t argc = 3;
   js_value_t *argv[3];
 
-  js_get_callback_info(env, info, &argc, argv, NULL, NULL);
+  err = js_get_callback_info(env, info, &argc, argv, NULL, NULL);
+  assert(err == 0);
+
+  assert(argc == 3);
 
   uv_write_t *req;
-  js_get_typedarray_info(env, argv[0], NULL, (void **) &req, NULL, NULL, NULL);
+  err = js_get_typedarray_info(env, argv[0], NULL, (void **) &req, NULL, NULL, NULL);
+  assert(err == 0);
 
   pear_pipe_t *self;
-  js_get_typedarray_info(env, argv[1], NULL, (void **) &self, NULL, NULL, NULL);
+  err = js_get_typedarray_info(env, argv[1], NULL, (void **) &self, NULL, NULL, NULL);
+  assert(err == 0);
 
   js_value_t *arr = argv[2];
   js_value_t *item;
 
-  uint32_t nbufs;
-  js_get_array_length(env, arr, &nbufs);
+  uint32_t bufs_len;
+  err = js_get_array_length(env, arr, &bufs_len);
+  assert(err == 0);
 
-  uv_buf_t *bufs = malloc(sizeof(uv_buf_t) * nbufs);
+  uv_buf_t *bufs = malloc(sizeof(uv_buf_t) * bufs_len);
 
-  for (uint32_t i = 0; i < nbufs; i++) {
-    js_get_element(env, arr, i, &item);
+  for (uint32_t i = 0; i < bufs_len; i++) {
+    err = js_get_element(env, arr, i, &item);
+    assert(err == 0);
 
     uv_buf_t *buf = &bufs[i];
-    js_get_typedarray_info(env, item, NULL, (void **) &buf->base, &buf->len, NULL, NULL);
+    err = js_get_typedarray_info(env, item, NULL, (void **) &buf->base, &buf->len, NULL, NULL);
+    assert(err == 0);
   }
 
   req->data = self;
 
-  int err = uv_write(req, (uv_stream_t *) &self->pipe, bufs, nbufs, on_write);
+  err = uv_write(req, (uv_stream_t *) &self->pipe, bufs, bufs_len, on_write);
 
   free(bufs);
 
@@ -253,19 +361,25 @@ pear_pipe_writev (js_env_t *env, js_callback_info_t *info) {
 
 static js_value_t *
 pear_pipe_end (js_env_t *env, js_callback_info_t *info) {
+  int err;
+
   size_t argc = 1;
   js_value_t *argv[1];
 
-  js_get_callback_info(env, info, &argc, argv, NULL, NULL);
+  err = js_get_callback_info(env, info, &argc, argv, NULL, NULL);
+  assert(err == 0);
+
+  assert(argc == 1);
 
   pear_pipe_t *self;
-  js_get_typedarray_info(env, argv[0], NULL, (void **) &self, NULL, NULL, NULL);
+  err = js_get_typedarray_info(env, argv[0], NULL, (void **) &self, NULL, NULL, NULL);
+  assert(err == 0);
 
   uv_shutdown_t *req = &self->end;
 
   req->data = self;
 
-  int err = uv_shutdown(req, (uv_stream_t *) self, on_shutdown);
+  err = uv_shutdown(req, (uv_stream_t *) self, on_shutdown);
 
   if (err < 0) {
     js_throw_error(env, uv_err_name(err), uv_strerror(err));
@@ -277,43 +391,71 @@ pear_pipe_end (js_env_t *env, js_callback_info_t *info) {
 
 static js_value_t *
 pear_pipe_resume (js_env_t *env, js_callback_info_t *info) {
+  int err;
+
   size_t argc = 1;
   js_value_t *argv[1];
 
-  js_get_callback_info(env, info, &argc, argv, NULL, NULL);
+  err = js_get_callback_info(env, info, &argc, argv, NULL, NULL);
+  assert(err == 0);
+
+  assert(argc == 1);
 
   pear_pipe_t *self;
-  js_get_typedarray_info(env, argv[0], NULL, (void **) &self, NULL, NULL, NULL);
+  err = js_get_typedarray_info(env, argv[0], NULL, (void **) &self, NULL, NULL, NULL);
+  assert(err == 0);
 
-  uv_read_start((uv_stream_t *) &self->pipe, on_alloc, on_read);
+  err = uv_read_start((uv_stream_t *) &self->pipe, on_alloc, on_read);
+
+  if (err < 0) {
+    js_throw_error(env, uv_err_name(err), uv_strerror(err));
+    return NULL;
+  }
 
   return NULL;
 }
 
 static js_value_t *
 pear_pipe_pause (js_env_t *env, js_callback_info_t *info) {
+  int err;
+
   size_t argc = 1;
   js_value_t *argv[1];
 
-  js_get_callback_info(env, info, &argc, argv, NULL, NULL);
+  err = js_get_callback_info(env, info, &argc, argv, NULL, NULL);
+  assert(err == 0);
+
+  assert(argc == 1);
 
   pear_pipe_t *self;
-  js_get_typedarray_info(env, argv[0], NULL, (void **) &self, NULL, NULL, NULL);
+  err = js_get_typedarray_info(env, argv[0], NULL, (void **) &self, NULL, NULL, NULL);
+  assert(err == 0);
 
-  uv_read_stop((uv_stream_t *) &self->pipe);
+  err = uv_read_stop((uv_stream_t *) &self->pipe);
+
+  if (err < 0) {
+    js_throw_error(env, uv_err_name(err), uv_strerror(err));
+    return NULL;
+  }
 
   return NULL;
 }
 
 static js_value_t *
 pear_pipe_close (js_env_t *env, js_callback_info_t *info) {
+  int err;
+
   size_t argc = 1;
   js_value_t *argv[1];
 
-  js_get_callback_info(env, info, &argc, argv, NULL, NULL);
+  err = js_get_callback_info(env, info, &argc, argv, NULL, NULL);
+  assert(err == 0);
+
+  assert(argc == 1);
 
   pear_pipe_t *self;
-  js_get_typedarray_info(env, argv[0], NULL, (void **) &self, NULL, NULL, NULL);
+  err = js_get_typedarray_info(env, argv[0], NULL, (void **) &self, NULL, NULL, NULL);
+  assert(err == 0);
 
   uv_close((uv_handle_t *) &self->pipe, on_close);
 

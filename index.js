@@ -19,6 +19,7 @@ module.exports = class Pipe extends Duplex {
     this._destroyCallback = null
 
     this._connected = typeof path === 'number' ? 1 : 0 // unknown
+    this._reading = false
     this._allowHalfOpen = allowHalfOpen
 
     binding.init(this._handle, this._buffer, this,
@@ -42,7 +43,10 @@ module.exports = class Pipe extends Duplex {
   }
 
   _read (cb) {
-    binding.resume(this._handle)
+    if (!this._reading) {
+      this._reading = true
+      binding.resume(this._handle)
+    }
     cb(null)
   }
 
@@ -116,6 +120,7 @@ module.exports = class Pipe extends Duplex {
     copy.set(this._buffer.subarray(0, read))
 
     if (this.push(copy) === false && this.destroying === false) {
+      this._reading = false
       binding.pause(this._handle)
     }
   }
