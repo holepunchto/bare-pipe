@@ -32,7 +32,7 @@ test('named pipe', (t) => {
 })
 
 function name () {
-  const name = 'pear-pipe-' + Math.random().toString(16).slice(2) + Math.random().toString(16).slice(2)
+  const name = 'bare-pipe-' + Math.random().toString(16).slice(2) + Math.random().toString(16).slice(2)
   return process.platform === 'win32'
     ? '\\\\.\\pipe\\' + name
     : '/tmp/' + name + '.sock'

@@ -1,15 +1,15 @@
-# @pearjs/pipe
+# bare-pipe
 
 Native I/O pipes for JavaScript.
 
 ```
-npm install @pearjs/pipe
+npm i bare-pipe
 ```
 
 ## Usage
 
 ``` js
-const Pipe = require('@pearjs/pipe')
+const Pipe = require('bare-pipe')
 
 const stdout = new Pipe(1)
 

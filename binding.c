@@ -1,6 +1,6 @@
 #include <assert.h>
+#include <bare.h>
 #include <js.h>
-#include <pear.h>
 #include <stdlib.h>
 #include <uv.h>
 
@@ -16,13 +16,13 @@ typedef struct {
   js_ref_t *on_end;
   js_ref_t *on_read;
   js_ref_t *on_close;
-} pear_pipe_t;
+} bare_pipe_t;
 
 static void
 on_connect (uv_connect_t *req, int status) {
   int err;
 
-  pear_pipe_t *self = (pear_pipe_t *) req->data;
+  bare_pipe_t *self = (bare_pipe_t *) req->data;
 
   js_env_t *env = self->env;
 
@@ -52,7 +52,7 @@ static void
 on_write (uv_write_t *req, int status) {
   int err;
 
-  pear_pipe_t *self = (pear_pipe_t *) req->data;
+  bare_pipe_t *self = (bare_pipe_t *) req->data;
 
   js_env_t *env = self->env;
 
@@ -82,7 +82,7 @@ static void
 on_shutdown (uv_shutdown_t *req, int status) {
   int err;
 
-  pear_pipe_t *self = (pear_pipe_t *) req->data;
+  bare_pipe_t *self = (bare_pipe_t *) req->data;
 
   js_env_t *env = self->env;
 
@@ -115,7 +115,7 @@ on_read (uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf) {
 
   int err;
 
-  pear_pipe_t *self = (pear_pipe_t *) stream;
+  bare_pipe_t *self = (bare_pipe_t *) stream;
 
   js_env_t *env = self->env;
 
@@ -145,7 +145,7 @@ static void
 on_close (uv_handle_t *handle) {
   int err;
 
-  pear_pipe_t *self = (pear_pipe_t *) handle;
+  bare_pipe_t *self = (bare_pipe_t *) handle;
 
   js_env_t *env = self->env;
 
@@ -187,12 +187,12 @@ on_close (uv_handle_t *handle) {
 
 static void
 on_alloc (uv_handle_t *handle, size_t suggested_size, uv_buf_t *buf) {
-  pear_pipe_t *self = (pear_pipe_t *) handle;
+  bare_pipe_t *self = (bare_pipe_t *) handle;
   *buf = self->read_buf;
 }
 
 static js_value_t *
-pear_pipe_init (js_env_t *env, js_callback_info_t *info) {
+bare_pipe_init (js_env_t *env, js_callback_info_t *info) {
   int err;
 
   size_t argc = 8;
@@ -206,7 +206,7 @@ pear_pipe_init (js_env_t *env, js_callback_info_t *info) {
   uv_loop_t *loop;
   js_get_env_loop(env, &loop);
 
-  pear_pipe_t *self;
+  bare_pipe_t *self;
   err = js_get_typedarray_info(env, argv[0], NULL, (void **) &self, NULL, NULL, NULL);
   assert(err == 0);
 
@@ -248,7 +248,7 @@ pear_pipe_init (js_env_t *env, js_callback_info_t *info) {
 }
 
 static js_value_t *
-pear_pipe_connect (js_env_t *env, js_callback_info_t *info) {
+bare_pipe_connect (js_env_t *env, js_callback_info_t *info) {
   int err;
 
   size_t argc = 2;
@@ -259,7 +259,7 @@ pear_pipe_connect (js_env_t *env, js_callback_info_t *info) {
 
   assert(argc == 2);
 
-  pear_pipe_t *self;
+  bare_pipe_t *self;
   err = js_get_typedarray_info(env, argv[0], NULL, (void **) &self, NULL, NULL, NULL);
   assert(err == 0);
 
@@ -278,7 +278,7 @@ pear_pipe_connect (js_env_t *env, js_callback_info_t *info) {
 }
 
 static js_value_t *
-pear_pipe_open (js_env_t *env, js_callback_info_t *info) {
+bare_pipe_open (js_env_t *env, js_callback_info_t *info) {
   int err;
 
   size_t argc = 2;
@@ -289,7 +289,7 @@ pear_pipe_open (js_env_t *env, js_callback_info_t *info) {
 
   assert(argc == 2);
 
-  pear_pipe_t *self;
+  bare_pipe_t *self;
   err = js_get_typedarray_info(env, argv[0], NULL, (void **) &self, NULL, NULL, NULL);
   assert(err == 0);
 
@@ -308,7 +308,7 @@ pear_pipe_open (js_env_t *env, js_callback_info_t *info) {
 }
 
 static js_value_t *
-pear_pipe_writev (js_env_t *env, js_callback_info_t *info) {
+bare_pipe_writev (js_env_t *env, js_callback_info_t *info) {
   int err;
 
   size_t argc = 3;
@@ -323,7 +323,7 @@ pear_pipe_writev (js_env_t *env, js_callback_info_t *info) {
   err = js_get_typedarray_info(env, argv[0], NULL, (void **) &req, NULL, NULL, NULL);
   assert(err == 0);
 
-  pear_pipe_t *self;
+  bare_pipe_t *self;
   err = js_get_typedarray_info(env, argv[1], NULL, (void **) &self, NULL, NULL, NULL);
   assert(err == 0);
 
@@ -360,7 +360,7 @@ pear_pipe_writev (js_env_t *env, js_callback_info_t *info) {
 }
 
 static js_value_t *
-pear_pipe_end (js_env_t *env, js_callback_info_t *info) {
+bare_pipe_end (js_env_t *env, js_callback_info_t *info) {
   int err;
 
   size_t argc = 1;
@@ -371,7 +371,7 @@ pear_pipe_end (js_env_t *env, js_callback_info_t *info) {
 
   assert(argc == 1);
 
-  pear_pipe_t *self;
+  bare_pipe_t *self;
   err = js_get_typedarray_info(env, argv[0], NULL, (void **) &self, NULL, NULL, NULL);
   assert(err == 0);
 
@@ -390,7 +390,7 @@ pear_pipe_end (js_env_t *env, js_callback_info_t *info) {
 }
 
 static js_value_t *
-pear_pipe_resume (js_env_t *env, js_callback_info_t *info) {
+bare_pipe_resume (js_env_t *env, js_callback_info_t *info) {
   int err;
 
   size_t argc = 1;
@@ -401,7 +401,7 @@ pear_pipe_resume (js_env_t *env, js_callback_info_t *info) {
 
   assert(argc == 1);
 
-  pear_pipe_t *self;
+  bare_pipe_t *self;
   err = js_get_typedarray_info(env, argv[0], NULL, (void **) &self, NULL, NULL, NULL);
   assert(err == 0);
 
@@ -416,7 +416,7 @@ pear_pipe_resume (js_env_t *env, js_callback_info_t *info) {
 }
 
 static js_value_t *
-pear_pipe_pause (js_env_t *env, js_callback_info_t *info) {
+bare_pipe_pause (js_env_t *env, js_callback_info_t *info) {
   int err;
 
   size_t argc = 1;
@@ -427,7 +427,7 @@ pear_pipe_pause (js_env_t *env, js_callback_info_t *info) {
 
   assert(argc == 1);
 
-  pear_pipe_t *self;
+  bare_pipe_t *self;
   err = js_get_typedarray_info(env, argv[0], NULL, (void **) &self, NULL, NULL, NULL);
   assert(err == 0);
 
@@ -442,7 +442,7 @@ pear_pipe_pause (js_env_t *env, js_callback_info_t *info) {
 }
 
 static js_value_t *
-pear_pipe_close (js_env_t *env, js_callback_info_t *info) {
+bare_pipe_close (js_env_t *env, js_callback_info_t *info) {
   int err;
 
   size_t argc = 1;
@@ -453,7 +453,7 @@ pear_pipe_close (js_env_t *env, js_callback_info_t *info) {
 
   assert(argc == 1);
 
-  pear_pipe_t *self;
+  bare_pipe_t *self;
   err = js_get_typedarray_info(env, argv[0], NULL, (void **) &self, NULL, NULL, NULL);
   assert(err == 0);
 
@@ -466,7 +466,7 @@ static js_value_t *
 init (js_env_t *env, js_value_t *exports) {
   {
     js_value_t *val;
-    js_create_uint32(env, sizeof(pear_pipe_t), &val);
+    js_create_uint32(env, sizeof(bare_pipe_t), &val);
     js_set_named_property(env, exports, "sizeofPipe", val);
   }
   {
@@ -476,46 +476,46 @@ init (js_env_t *env, js_value_t *exports) {
   }
   {
     js_value_t *fn;
-    js_create_function(env, "init", -1, pear_pipe_init, NULL, &fn);
+    js_create_function(env, "init", -1, bare_pipe_init, NULL, &fn);
     js_set_named_property(env, exports, "init", fn);
   }
   {
     js_value_t *fn;
-    js_create_function(env, "connect", -1, pear_pipe_connect, NULL, &fn);
+    js_create_function(env, "connect", -1, bare_pipe_connect, NULL, &fn);
     js_set_named_property(env, exports, "connect", fn);
   }
   {
     js_value_t *fn;
-    js_create_function(env, "open", -1, pear_pipe_open, NULL, &fn);
+    js_create_function(env, "open", -1, bare_pipe_open, NULL, &fn);
     js_set_named_property(env, exports, "open", fn);
   }
   {
     js_value_t *fn;
-    js_create_function(env, "writev", -1, pear_pipe_writev, NULL, &fn);
+    js_create_function(env, "writev", -1, bare_pipe_writev, NULL, &fn);
     js_set_named_property(env, exports, "writev", fn);
   }
   {
     js_value_t *fn;
-    js_create_function(env, "end", -1, pear_pipe_end, NULL, &fn);
+    js_create_function(env, "end", -1, bare_pipe_end, NULL, &fn);
     js_set_named_property(env, exports, "end", fn);
   }
   {
     js_value_t *fn;
-    js_create_function(env, "resume", -1, pear_pipe_resume, NULL, &fn);
+    js_create_function(env, "resume", -1, bare_pipe_resume, NULL, &fn);
     js_set_named_property(env, exports, "resume", fn);
   }
   {
     js_value_t *fn;
-    js_create_function(env, "pause", -1, pear_pipe_pause, NULL, &fn);
+    js_create_function(env, "pause", -1, bare_pipe_pause, NULL, &fn);
     js_set_named_property(env, exports, "pause", fn);
   }
   {
     js_value_t *fn;
-    js_create_function(env, "close", -1, pear_pipe_close, NULL, &fn);
+    js_create_function(env, "close", -1, bare_pipe_close, NULL, &fn);
     js_set_named_property(env, exports, "close", fn);
   }
 
   return exports;
 }
 
-PEAR_MODULE(pear_pipe, init)
+BARE_MODULE(bare_pipe, init)

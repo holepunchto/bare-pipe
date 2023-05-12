@@ -1,13 +1,13 @@
 cmake_minimum_required(VERSION 3.25)
 
-project(pear_pipe C)
+project(bare_pipe C)
 
-include(pear)
+include(bare)
 
-add_pear_module(pear_pipe)
+add_bare_module(bare_pipe)
 
 target_sources(
-  pear_pipe
+  bare_pipe
   PRIVATE
     binding.c
 )

@@ -1,5 +1,5 @@
 {
-  "name": "@pearjs/pipe",
+  "name": "bare-pipe",
   "version": "1.0.2",
   "description": "Native I/O pipes for JavaScript",
   "main": "index.js",
@@ -11,20 +11,20 @@
     "prebuilds"
   ],
   "scripts": {
-    "test": "standard && pear test.js",
-    "install": "pear-dev rebuild",
-    "prebuild": "pear-dev prebuild"
+    "test": "standard && bare test.js",
+    "install": "bare-dev rebuild",
+    "prebuild": "bare-dev prebuild"
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/holepunchto/pearjs-pipe.git"
+    "url": "https://github.com/holepunchto/bare-pipe.git"
   },
   "author": "Holepunch",
   "license": "Apache-2.0",
   "bugs": {
-    "url": "https://github.com/holepunchto/pearjs-pipe/issues"
+    "url": "https://github.com/holepunchto/bare-pipe/issues"
   },
-  "homepage": "https://github.com/holepunchto/pearjs-pipe#readme",
+  "homepage": "https://github.com/holepunchto/bare-pipe#readme",
   "dependencies": {
     "streamx": "^2.13.2"
   },
