@@ -1,6 +1,6 @@
 {
   "name": "bare-pipe",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Native I/O pipes for JavaScript",
   "main": "index.js",
   "files": [
