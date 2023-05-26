@@ -2,6 +2,7 @@
 #include <bare.h>
 #include <js.h>
 #include <stdlib.h>
+#include <utf.h>
 #include <uv.h>
 
 typedef struct {
@@ -17,6 +18,8 @@ typedef struct {
   js_ref_t *on_read;
   js_ref_t *on_close;
 } bare_pipe_t;
+
+typedef utf8_t bare_pipe_path_t[4096 + 1 /* NULL */];
 
 static void
 on_connect (uv_connect_t *req, int status) {
@@ -34,15 +37,15 @@ on_connect (uv_connect_t *req, int status) {
   err = js_get_reference_value(env, self->ctx, &ctx);
   assert(err == 0);
 
-  js_value_t *callback;
-  err = js_get_reference_value(env, self->on_connect, &callback);
+  js_value_t *on_connect;
+  err = js_get_reference_value(env, self->on_connect, &on_connect);
   assert(err == 0);
 
   js_value_t *argv[1];
   err = js_create_int32(env, status, &argv[0]);
   assert(err == 0);
 
-  js_call_function(env, ctx, callback, 1, argv, NULL);
+  js_call_function(env, ctx, on_connect, 1, argv, NULL);
 
   err = js_close_handle_scope(env, scope);
   assert(err == 0);
@@ -64,15 +67,15 @@ on_write (uv_write_t *req, int status) {
   err = js_get_reference_value(env, self->ctx, &ctx);
   assert(err == 0);
 
-  js_value_t *callback;
-  err = js_get_reference_value(env, self->on_write, &callback);
+  js_value_t *on_write;
+  err = js_get_reference_value(env, self->on_write, &on_write);
   assert(err == 0);
 
   js_value_t *argv[1];
   err = js_create_int32(env, status, &argv[0]);
   assert(err == 0);
 
-  js_call_function(env, ctx, callback, 1, argv, NULL);
+  js_call_function(env, ctx, on_write, 1, argv, NULL);
 
   err = js_close_handle_scope(env, scope);
   assert(err == 0);
@@ -94,15 +97,15 @@ on_shutdown (uv_shutdown_t *req, int status) {
   err = js_get_reference_value(env, self->ctx, &ctx);
   assert(err == 0);
 
-  js_value_t *callback;
-  err = js_get_reference_value(env, self->on_end, &callback);
+  js_value_t *on_end;
+  err = js_get_reference_value(env, self->on_end, &on_end);
   assert(err == 0);
 
   js_value_t *argv[1];
   err = js_create_int32(env, status, &argv[0]);
   assert(err == 0);
 
-  js_call_function(env, ctx, callback, 1, argv, NULL);
+  js_call_function(env, ctx, on_end, 1, argv, NULL);
 
   err = js_close_handle_scope(env, scope);
   assert(err == 0);
@@ -127,15 +130,15 @@ on_read (uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf) {
   err = js_get_reference_value(env, self->ctx, &ctx);
   assert(err == 0);
 
-  js_value_t *callback;
-  err = js_get_reference_value(env, self->on_read, &callback);
+  js_value_t *on_read;
+  err = js_get_reference_value(env, self->on_read, &on_read);
   assert(err == 0);
 
   js_value_t *argv[1];
   err = js_create_int32(env, nread, &argv[0]);
   assert(err == 0);
 
-  js_call_function(env, ctx, callback, 1, argv, NULL);
+  js_call_function(env, ctx, on_read, 1, argv, NULL);
 
   err = js_close_handle_scope(env, scope);
   assert(err == 0);
@@ -157,11 +160,11 @@ on_close (uv_handle_t *handle) {
   err = js_get_reference_value(env, self->ctx, &ctx);
   assert(err == 0);
 
-  js_value_t *callback;
-  err = js_get_reference_value(env, self->on_close, &callback);
+  js_value_t *on_close;
+  err = js_get_reference_value(env, self->on_close, &on_close);
   assert(err == 0);
 
-  js_call_function(env, ctx, callback, 0, NULL, NULL);
+  js_call_function(env, ctx, on_close, 0, NULL, NULL);
 
   err = js_delete_reference(env, self->on_connect);
   assert(err == 0);
@@ -263,16 +266,15 @@ bare_pipe_connect (js_env_t *env, js_callback_info_t *info) {
   err = js_get_typedarray_info(env, argv[0], NULL, (void **) &self, NULL, NULL, NULL);
   assert(err == 0);
 
-  size_t path_len = 4096;
-  char path[4096];
-  err = js_get_value_string_utf8(env, argv[1], path, path_len, &path_len);
+  bare_pipe_path_t path;
+  err = js_get_value_string_utf8(env, argv[1], path, sizeof(bare_pipe_path_t), NULL);
   assert(err == 0);
 
   uv_connect_t *conn = &self->conn;
 
   conn->data = self;
 
-  uv_pipe_connect(conn, &self->pipe, path, on_connect);
+  uv_pipe_connect(conn, &self->pipe, (char *) path, on_connect);
 
   return NULL;
 }
