@@ -4,8 +4,18 @@ const binding = require('./binding')
 const DEFAULT_READ_BUFFER = 65536
 
 module.exports = class Pipe extends Duplex {
-  constructor (path, { readBufferSize = DEFAULT_READ_BUFFER, allowHalfOpen = true } = {}) {
+  constructor (path, opts = {}) {
     super({ mapWritable })
+
+    if (typeof path === 'object' && path !== null) {
+      opts = path
+      path = null
+    }
+
+    const {
+      readBufferSize = DEFAULT_READ_BUFFER,
+      allowHalfOpen = true
+    } = opts
 
     const slab = Buffer.alloc(binding.sizeofPipe + binding.sizeofWrite + readBufferSize)
 
@@ -18,7 +28,7 @@ module.exports = class Pipe extends Duplex {
     this._finalCallback = null
     this._destroyCallback = null
 
-    this._connected = typeof path === 'number' ? 1 : 0 // unknown
+    this._connected = typeof path === 'string' ? 0 : 1
     this._reading = false
     this._allowHalfOpen = allowHalfOpen
 
@@ -32,7 +42,7 @@ module.exports = class Pipe extends Duplex {
 
     if (typeof path === 'number') {
       binding.open(this._handle, path)
-    } else {
+    } else if (typeof path === 'string') {
       binding.connect(this._handle, path)
     }
   }
