@@ -200,7 +200,7 @@ on_read (uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf) {
     assert(err == 0);
   }
 
-  js_call_function(env, ctx, on_read, 1, argv, NULL);
+  js_call_function(env, ctx, on_read, 2, argv, NULL);
 
   err = js_close_handle_scope(env, scope);
   assert(err == 0);
