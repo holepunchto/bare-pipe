@@ -42,8 +42,22 @@ on_connect (uv_connect_t *req, int status) {
   assert(err == 0);
 
   js_value_t *argv[1];
-  err = js_create_int32(env, status, &argv[0]);
-  assert(err == 0);
+
+  if (status < 0) {
+    js_value_t *code;
+    err = js_create_string_utf8(env, (utf8_t *) uv_err_name(status), -1, &code);
+    assert(err == 0);
+
+    js_value_t *message;
+    err = js_create_string_utf8(env, (utf8_t *) uv_strerror(status), -1, &message);
+    assert(err == 0);
+
+    err = js_create_error(env, code, message, &argv[0]);
+    assert(err == 0);
+  } else {
+    err = js_get_null(env, &argv[0]);
+    assert(err == 0);
+  }
 
   js_call_function(env, ctx, on_connect, 1, argv, NULL);
 
@@ -72,8 +86,22 @@ on_write (uv_write_t *req, int status) {
   assert(err == 0);
 
   js_value_t *argv[1];
-  err = js_create_int32(env, status, &argv[0]);
-  assert(err == 0);
+
+  if (status < 0) {
+    js_value_t *code;
+    err = js_create_string_utf8(env, (utf8_t *) uv_err_name(status), -1, &code);
+    assert(err == 0);
+
+    js_value_t *message;
+    err = js_create_string_utf8(env, (utf8_t *) uv_strerror(status), -1, &message);
+    assert(err == 0);
+
+    err = js_create_error(env, code, message, &argv[0]);
+    assert(err == 0);
+  } else {
+    err = js_get_null(env, &argv[0]);
+    assert(err == 0);
+  }
 
   js_call_function(env, ctx, on_write, 1, argv, NULL);
 
@@ -102,8 +130,22 @@ on_shutdown (uv_shutdown_t *req, int status) {
   assert(err == 0);
 
   js_value_t *argv[1];
-  err = js_create_int32(env, status, &argv[0]);
-  assert(err == 0);
+
+  if (status < 0) {
+    js_value_t *code;
+    err = js_create_string_utf8(env, (utf8_t *) uv_err_name(status), -1, &code);
+    assert(err == 0);
+
+    js_value_t *message;
+    err = js_create_string_utf8(env, (utf8_t *) uv_strerror(status), -1, &message);
+    assert(err == 0);
+
+    err = js_create_error(env, code, message, &argv[0]);
+    assert(err == 0);
+  } else {
+    err = js_get_null(env, &argv[0]);
+    assert(err == 0);
+  }
 
   js_call_function(env, ctx, on_end, 1, argv, NULL);
 
@@ -134,9 +176,29 @@ on_read (uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf) {
   err = js_get_reference_value(env, self->on_read, &on_read);
   assert(err == 0);
 
-  js_value_t *argv[1];
-  err = js_create_int32(env, nread, &argv[0]);
-  assert(err == 0);
+  js_value_t *argv[2];
+
+  if (nread < 0) {
+    js_value_t *code;
+    err = js_create_string_utf8(env, (utf8_t *) uv_err_name(nread), -1, &code);
+    assert(err == 0);
+
+    js_value_t *message;
+    err = js_create_string_utf8(env, (utf8_t *) uv_strerror(nread), -1, &message);
+    assert(err == 0);
+
+    err = js_create_error(env, code, message, &argv[0]);
+    assert(err == 0);
+
+    err = js_create_int32(env, 0, &argv[1]);
+    assert(err == 0);
+  } else {
+    err = js_get_null(env, &argv[0]);
+    assert(err == 0);
+
+    err = js_create_int32(env, nread, &argv[1]);
+    assert(err == 0);
+  }
 
   js_call_function(env, ctx, on_read, 1, argv, NULL);
 

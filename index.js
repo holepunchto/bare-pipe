@@ -28,7 +28,7 @@ module.exports = class Pipe extends Duplex {
     this._finalCallback = null
     this._destroyCallback = null
 
-    this._connected = typeof path === 'string' ? 0 : 1
+    this._connected = typeof path !== 'string'
     this._reading = false
     this._allowHalfOpen = allowHalfOpen
 
@@ -49,7 +49,7 @@ module.exports = class Pipe extends Duplex {
 
   _open (cb) {
     this._openCallback = cb
-    this._continueOpen()
+    this._continueOpen(null)
   }
 
   _read (cb) {
@@ -75,12 +75,12 @@ module.exports = class Pipe extends Duplex {
     binding.close(this._handle)
   }
 
-  _continueOpen () {
-    if (this._connected === 0) return
+  _continueOpen (err) {
+    if (!this._connected) return
     if (this._openCallback === null) return
     const cb = this._openCallback
     this._openCallback = null
-    cb(this._connected < 0 ? makeError(this._connected) : null)
+    cb(err)
   }
 
   _continueWrite (err) {
@@ -104,25 +104,24 @@ module.exports = class Pipe extends Duplex {
     cb(null)
   }
 
-  _onconnect (status) {
-    this._connected = status < 0 ? status : 1
-    this._continueOpen()
+  _onconnect (err) {
+    this._connected = true
+    this._continueOpen(err)
   }
 
-  _onwrite (status) {
-    const err = status < 0 ? makeError(status) : null
+  _onwrite (err) {
     this._continueWrite(err)
   }
 
-  _onread (read) {
-    if (read === 0) {
-      this.push(null)
-      if (this._allowHalfOpen === false) this.end()
+  _onread (err, read) {
+    if (err) {
+      this.destroy(err)
       return
     }
 
-    if (read < 0) {
-      this.destroy(makeError(read))
+    if (read === 0) {
+      this.push(null)
+      if (this._allowHalfOpen === false) this.end()
       return
     }
 
@@ -135,8 +134,7 @@ module.exports = class Pipe extends Duplex {
     }
   }
 
-  _onfinal (status) {
-    const err = status < 0 ? makeError(status) : null
+  _onfinal (err) {
     this._continueFinal(err)
   }
 
@@ -148,14 +146,4 @@ module.exports = class Pipe extends Duplex {
 
 function mapWritable (buf) {
   return typeof buf === 'string' ? Buffer.from(buf) : buf
-}
-
-function makeError (errno) {
-  const [code, msg] = process.errnos.get(errno)
-  const err = new Error(code + ': ' + msg)
-
-  err.code = code
-  err.errno = errno
-
-  return err
 }
