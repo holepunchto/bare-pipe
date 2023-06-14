@@ -29,7 +29,7 @@ module.exports = class Pipe extends Duplex {
     this._destroyCallback = null
 
     this._connected = typeof path !== 'string'
-    this._reading = false
+    this._reading = opts.readable === false ? true : false
     this._allowHalfOpen = allowHalfOpen
 
     binding.init(this._handle, this._buffer, this,
@@ -55,8 +55,7 @@ module.exports = class Pipe extends Duplex {
   _read (cb) {
     if (!this._reading) {
       this._reading = true
-      console.log('resume')
-      // binding.resume(this._handle)
+      binding.resume(this._handle)
     }
     cb(null)
   }
@@ -68,12 +67,10 @@ module.exports = class Pipe extends Duplex {
 
   _final (cb) {
     this._finalCallback = cb
-    console.log('final')
     binding.end(this._handle)
   }
 
   _destroy (cb) {
-    console.log('close')
     this._destroyCallback = cb
     binding.close(this._handle)
   }
@@ -95,7 +92,6 @@ module.exports = class Pipe extends Duplex {
 
   _continueFinal (err) {
     if (this._finalCallback === null) return
-      console.log('continue final')
     const cb = this._finalCallback
     this._finalCallback = null
     cb(err)

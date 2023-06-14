@@ -4,7 +4,7 @@ const Pipe = require('.')
 test('stdout', (t) => {
   t.plan(1)
 
-  const stdout = new Pipe(1)
+  const stdout = new Pipe(1, { readable: false })
 
   stdout
     .on('close', () => t.pass('closed'))
@@ -14,7 +14,7 @@ test('stdout', (t) => {
 test('stderr', (t) => {
   t.plan(1)
 
-  const stdout = new Pipe(2)
+  const stdout = new Pipe(2, { readable: false })
 
   stdout
     .on('close', () => t.pass('closed'))
