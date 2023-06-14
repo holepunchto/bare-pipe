@@ -11,7 +11,7 @@
     "prebuilds"
   ],
   "scripts": {
-    "test": "bare test.js",
+    "test": "standard && bare test.js",
     "install": "bare-dev rebuild",
     "prebuild": "bare-dev prebuild"
   },
