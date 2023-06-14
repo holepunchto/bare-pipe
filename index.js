@@ -29,7 +29,7 @@ module.exports = class Pipe extends Duplex {
     this._destroyCallback = null
 
     this._connected = typeof path !== 'string'
-    this._reading = opts.readable === false ? true : false
+    this._reading = opts.readable === false // just skips the resume in _read below not readable
     this._allowHalfOpen = allowHalfOpen
 
     binding.init(this._handle, this._buffer, this,
