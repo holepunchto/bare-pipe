@@ -56,7 +56,7 @@ module.exports = class Pipe extends Duplex {
     if (!this._reading) {
       this._reading = true
       console.log('resume')
-      binding.resume(this._handle)
+      // binding.resume(this._handle)
     }
     cb(null)
   }
