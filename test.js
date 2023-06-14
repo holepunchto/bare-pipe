@@ -1,7 +1,7 @@
 const test = require('brittle')
 const Pipe = require('.')
 
-test.solo('stdout', (t) => {
+test('stdout', (t) => {
   t.plan(1)
 
   const stdout = new Pipe(1)
