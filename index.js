@@ -29,8 +29,9 @@ module.exports = class Pipe extends Duplex {
     this._destroyCallback = null
 
     this._connected = typeof path !== 'string'
-    this._reading = opts.readable === false // just skips the resume in _read below not readable
+    this._reading = false
     this._allowHalfOpen = allowHalfOpen
+    this._maybeWriteonly = false
 
     binding.init(this._handle, this._buffer, this,
       this._onconnect,
@@ -41,6 +42,8 @@ module.exports = class Pipe extends Duplex {
     )
 
     if (typeof path === 'number') {
+      // reads are buffering in the bg, so in case not readable, ignore the errors
+      this._maybeWriteonly = true
       binding.open(this._handle, path)
     } else if (typeof path === 'string') {
       binding.connect(this._handle, path)
@@ -55,7 +58,12 @@ module.exports = class Pipe extends Duplex {
   _read (cb) {
     if (!this._reading) {
       this._reading = true
-      binding.resume(this._handle)
+      try {
+        binding.resume(this._handle)
+      } catch (err) {
+        if (!this._maybeWriteonly) return cb(err)
+        this.push(null)
+      }
     }
     cb(null)
   }
