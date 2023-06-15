@@ -469,6 +469,8 @@ bare_pipe_resume (js_env_t *env, js_callback_info_t *info) {
   err = js_get_typedarray_info(env, argv[0], NULL, (void **) &self, NULL, NULL, NULL);
   assert(err == 0);
 
+  if (!uv_is_readable((uv_stream_t *) &self->pipe)) return NULL;
+
   err = uv_read_start((uv_stream_t *) &self->pipe, on_alloc, on_read);
 
   if (err < 0) {
@@ -494,6 +496,8 @@ bare_pipe_pause (js_env_t *env, js_callback_info_t *info) {
   bare_pipe_t *self;
   err = js_get_typedarray_info(env, argv[0], NULL, (void **) &self, NULL, NULL, NULL);
   assert(err == 0);
+
+  if (!uv_is_readable((uv_stream_t *) &self->pipe)) return NULL;
 
   err = uv_read_stop((uv_stream_t *) &self->pipe);
 
