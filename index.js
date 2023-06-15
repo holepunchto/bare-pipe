@@ -31,7 +31,6 @@ module.exports = class Pipe extends Duplex {
     this._connected = typeof path !== 'string'
     this._reading = false
     this._allowHalfOpen = allowHalfOpen
-    this._maybeWriteonly = false
 
     binding.init(this._handle, this._buffer, this,
       this._onconnect,
@@ -58,12 +57,7 @@ module.exports = class Pipe extends Duplex {
   _read (cb) {
     if (!this._reading) {
       this._reading = true
-      try {
-        binding.resume(this._handle)
-      } catch (err) {
-        if (!this._maybeWriteonly) return cb(err)
-        this.push(null)
-      }
+      binding.resume(this._handle)
     }
     cb(null)
   }
