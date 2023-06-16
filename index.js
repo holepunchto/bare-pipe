@@ -41,8 +41,6 @@ module.exports = class Pipe extends Duplex {
     )
 
     if (typeof path === 'number') {
-      // reads are buffering in the bg, so in case not readable, ignore the errors
-      this._maybeWriteonly = true
       binding.open(this._handle, path)
     } else if (typeof path === 'string') {
       binding.connect(this._handle, path)
