@@ -4,9 +4,8 @@ const Pipe = require('.')
 test('stdout', (t) => {
   t.plan(1)
 
-  const stdout = new Pipe()
+  const stdout = new Pipe(1)
   stdout
-    .open(1)
     .on('close', () => t.pass('closed'))
     .end('hello from pipe\n')
 })
@@ -14,9 +13,8 @@ test('stdout', (t) => {
 test('stderr', (t) => {
   t.plan(1)
 
-  const stdout = new Pipe()
+  const stdout = new Pipe(2)
   stdout
-    .open(2)
     .on('close', () => t.pass('closed'))
     .end('hello from pipe\n')
 })
@@ -24,21 +22,23 @@ test('stderr', (t) => {
 test('named pipe', (t) => {
   t.plan(1)
 
-  const stdout = new Pipe()
+  const stdout = new Pipe(name())
   stdout
-    .connect(name())
     .on('close', () => t.pass('closed'))
     .end('hello from pipe\n')
 })
 
 test('server', async (t) => {
+  t.plan(2)
+
   const n = name()
 
   const lc = t.test('lifecycle')
   lc.plan(1)
 
-  const server = new Pipe()
+  const server = Pipe.createServer()
   server
+    .on('close', () => t.pass('server closed'))
     .on('connection', (pipe) => {
       pipe
         .on('data', (data) => lc.alike(data, Buffer.from('hello pipe')))
@@ -46,14 +46,12 @@ test('server', async (t) => {
     })
     .bind(n)
 
-  const client = new Pipe()
-  client
-    .connect(n)
-    .end('hello pipe')
+  const client = new Pipe(n)
+  client.end('hello pipe')
 
   await lc
 
-  server.destroy()
+  server.close()
 })
 
 function name () {

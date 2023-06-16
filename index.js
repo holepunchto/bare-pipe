@@ -1,11 +1,17 @@
+const EventEmitter = require('events')
 const { Duplex } = require('streamx')
 const binding = require('./binding')
 
 const DEFAULT_READ_BUFFER = 65536
 
-module.exports = class Pipe extends Duplex {
-  constructor (opts = {}) {
+const Pipe = module.exports = class Pipe extends Duplex {
+  constructor (path, opts = {}) {
     super({ mapWritable })
+
+    if (typeof path === 'object' && path !== null) {
+      opts = path
+      path = null
+    }
 
     const {
       readBufferSize = DEFAULT_READ_BUFFER,
@@ -17,36 +23,30 @@ module.exports = class Pipe extends Duplex {
     this._pendingFinal = null
     this._pendingDestroy = null
 
-    this._connected = false
+    this._connected = typeof path !== 'string'
     this._reading = false
     this._allowHalfOpen = allowHalfOpen
 
     this._buffer = Buffer.alloc(readBufferSize)
 
     this._handle = binding.init(this._buffer, this,
+      noop,
       this._onconnect,
-      this._onconnection,
       this._onwrite,
       this._onfinal,
       this._onread,
       this._onclose
     )
+
+    if (typeof path === 'number') {
+      binding.open(this._handle, path)
+    } else if (typeof path === 'string') {
+      binding.connect(this._handle, path)
+    }
   }
 
-  open (file) {
-    binding.open(this._handle, file)
-    this._connected = true
-    return this
-  }
-
-  connect (name) {
-    binding.connect(this._handle, name)
-    return this
-  }
-
-  bind (name, backlog = 511) {
-    binding.bind(this._handle, name, backlog)
-    return this
+  static createServer (opts) {
+    return new PipeServer(opts)
   }
 
   _open (cb) {
@@ -111,20 +111,6 @@ module.exports = class Pipe extends Duplex {
     this._continueOpen(err)
   }
 
-  _onconnection (err) {
-    if (err) return // TODO: Propagate errors
-
-    const pipe = new Pipe()
-
-    try {
-      binding.accept(this._handle, pipe._handle)
-      pipe._connected = true
-      this.emit('connection', pipe)
-    } catch (err) { // TODO: Propagate errors
-      pipe.destroy()
-    }
-  }
-
   _onwrite (err) {
     this._continueWrite(err)
   }
@@ -159,6 +145,89 @@ module.exports = class Pipe extends Duplex {
     this._continueDestroy()
   }
 }
+
+class PipeServer extends EventEmitter {
+  constructor (opts = {}) {
+    super()
+
+    const {
+      readBufferSize = DEFAULT_READ_BUFFER,
+      allowHalfOpen = true
+    } = opts
+
+    this._readBufferSize = readBufferSize
+    this._allowHalfOpen = allowHalfOpen
+
+    this._handle = binding.init(empty, this,
+      this._onconnection,
+      noop,
+      noop,
+      noop,
+      noop,
+      this._onclose
+    )
+
+    this.bound = false
+    this.closing = false
+    this.connections = new Set()
+  }
+
+  bind (name, backlog = 511) {
+    if (this.bound) throw new Error('Server is already bound')
+    if (this.closing) throw new Error('Server is closed')
+
+    binding.bind(this._handle, name, backlog)
+
+    return this
+  }
+
+  close (onclose) {
+    if (onclose) this.once('close', onclose)
+
+    if (this.closing) return
+    this.closing = true
+
+    if (this.connections.size === 0) binding.close(this._handle)
+  }
+
+  _onconnection (err) {
+    if (err) return // TODO: Propagate errors
+
+    if (this.closing) return
+
+    const pipe = new Pipe({
+      readBufferSize: this._readBufferSize,
+      allowHalfOpen: this._allowHalfOpen
+    })
+
+    try {
+      binding.accept(this._handle, pipe._handle)
+
+      this.connections.add(pipe)
+
+      pipe.on('close', () => {
+        this.connections.delete(pipe)
+
+        if (this.closing && this.connections.size === 0) {
+          binding.close(this._handle)
+        }
+      })
+
+      this.emit('connection', pipe)
+    } catch (err) { // TODO: Propagate errors
+      pipe.destroy()
+    }
+  }
+
+  _onclose () {
+    this._handle = null
+    this.emit('close')
+  }
+}
+
+const empty = Buffer.alloc(0)
+
+function noop () {}
 
 function mapWritable (buf) {
   return typeof buf === 'string' ? Buffer.from(buf) : buf
