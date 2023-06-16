@@ -369,60 +369,6 @@ bare_pipe_init (js_env_t *env, js_callback_info_t *info) {
 }
 
 static js_value_t *
-bare_pipe_init_server (js_env_t *env, js_callback_info_t *info) {
-  int err;
-
-  size_t argc = 7;
-  js_value_t *argv[7];
-
-  err = js_get_callback_info(env, info, &argc, argv, NULL, NULL);
-  assert(err == 0);
-
-  assert(argc == 7);
-
-  uv_loop_t *loop;
-  js_get_env_loop(env, &loop);
-
-  js_value_t *handle;
-
-  bare_pipe_t *pipe;
-  err = js_create_arraybuffer(env, sizeof(bare_pipe_t), (void **) &pipe, &handle);
-  assert(err == 0);
-
-  err = uv_pipe_init(loop, &pipe->handle, 0);
-
-  if (err < 0) {
-    js_throw_error(env, uv_err_name(err), uv_strerror(err));
-    return NULL;
-  }
-
-  pipe->env = env;
-
-  err = js_get_typedarray_info(env, argv[0], NULL, (void **) &pipe->read.base, &pipe->read.len, NULL, NULL);
-  assert(err == 0);
-
-  err = js_create_reference(env, argv[1], 1, &pipe->ctx);
-  assert(err == 0);
-
-  err = js_create_reference(env, argv[2], 1, &pipe->on_connect);
-  assert(err == 0);
-
-  err = js_create_reference(env, argv[3], 1, &pipe->on_write);
-  assert(err == 0);
-
-  err = js_create_reference(env, argv[4], 1, &pipe->on_end);
-  assert(err == 0);
-
-  err = js_create_reference(env, argv[5], 1, &pipe->on_read);
-  assert(err == 0);
-
-  err = js_create_reference(env, argv[6], 1, &pipe->on_close);
-  assert(err == 0);
-
-  return handle;
-}
-
-static js_value_t *
 bare_pipe_connect (js_env_t *env, js_callback_info_t *info) {
   int err;
 
@@ -725,11 +671,6 @@ init (js_env_t *env, js_value_t *exports) {
     js_value_t *fn;
     js_create_function(env, "init", -1, bare_pipe_init, NULL, &fn);
     js_set_named_property(env, exports, "init", fn);
-  }
-  {
-    js_value_t *fn;
-    js_create_function(env, "initServer", -1, bare_pipe_init_server, NULL, &fn);
-    js_set_named_property(env, exports, "initServer", fn);
   }
   {
     js_value_t *fn;
