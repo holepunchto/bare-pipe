@@ -11,7 +11,7 @@ npm i bare-pipe
 ``` js
 const Pipe = require('bare-pipe')
 
-const stdout = new Pipe(1)
+const stdout = new Pipe().open(1)
 
 stdout.write('Hello world!\n')
 ```
