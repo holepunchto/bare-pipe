@@ -44,14 +44,8 @@ module.exports = class Pipe extends Duplex {
     return this
   }
 
-  listen (name, backlog = 511, cb) {
-    if (typeof backlog === 'function') {
-      cb = backlog
-      backlog = 511
-    }
-
-    if (cb) this.on('connection', cb)
-    binding.listen(this._handle, name, backlog)
+  bind (name, backlog = 511) {
+    binding.bind(this._handle, name, backlog)
     return this
   }
 

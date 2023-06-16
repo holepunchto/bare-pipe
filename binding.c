@@ -425,7 +425,7 @@ bare_pipe_open (js_env_t *env, js_callback_info_t *info) {
 }
 
 static js_value_t *
-bare_pipe_listen (js_env_t *env, js_callback_info_t *info) {
+bare_pipe_bind (js_env_t *env, js_callback_info_t *info) {
   int err;
 
   size_t argc = 3;
@@ -681,8 +681,8 @@ init (js_env_t *env, js_value_t *exports) {
   }
   {
     js_value_t *fn;
-    js_create_function(env, "listen", -1, bare_pipe_listen, NULL, &fn);
-    js_set_named_property(env, exports, "listen", fn);
+    js_create_function(env, "bind", -1, bare_pipe_bind, NULL, &fn);
+    js_set_named_property(env, exports, "bind", fn);
   }
   {
     js_value_t *fn;
