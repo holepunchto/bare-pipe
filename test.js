@@ -44,7 +44,7 @@ test('server', async (t) => {
         .on('data', (data) => lc.alike(data, Buffer.from('hello pipe')))
         .end()
     })
-    .bind(n)
+    .listen(n)
 
   const client = new Pipe(n)
   client.end('hello pipe')

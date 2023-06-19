@@ -167,13 +167,13 @@ class PipeServer extends EventEmitter {
       this._onclose
     )
 
-    this.bound = false
+    this.listening = false
     this.closing = false
     this.connections = new Set()
   }
 
-  bind (name, backlog = 511) {
-    if (this.bound) throw new Error('Server is already bound')
+  listen (name, backlog = 511) {
+    if (this.listening) throw new Error('Server is already bound')
     if (this.closing) throw new Error('Server is closed')
 
     binding.bind(this._handle, name, backlog)
