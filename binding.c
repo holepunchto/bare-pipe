@@ -568,7 +568,7 @@ bare_pipe_end (js_env_t *env, js_callback_info_t *info) {
 
   req->data = pipe;
 
-  err = uv_shutdown(req, (uv_stream_t *) pipe, on_shutdown);
+  err = uv_shutdown(req, (uv_stream_t *) &pipe->handle, on_shutdown);
 
   if (err < 0) {
     js_throw_error(env, uv_err_name(err), uv_strerror(err));
@@ -657,16 +657,6 @@ bare_pipe_close (js_env_t *env, js_callback_info_t *info) {
 
 static js_value_t *
 init (js_env_t *env, js_value_t *exports) {
-  {
-    js_value_t *val;
-    js_create_uint32(env, sizeof(bare_pipe_t), &val);
-    js_set_named_property(env, exports, "sizeofPipe", val);
-  }
-  {
-    js_value_t *val;
-    js_create_uint32(env, sizeof(uv_write_t), &val);
-    js_set_named_property(env, exports, "sizeofWrite", val);
-  }
   {
     js_value_t *fn;
     js_create_function(env, "init", -1, bare_pipe_init, NULL, &fn);
