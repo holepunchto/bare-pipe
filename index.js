@@ -191,7 +191,10 @@ class PipeServer extends EventEmitter {
   }
 
   _onconnection (err) {
-    if (err) return // TODO: Propagate errors
+    if (err) {
+      this.emit('error', err)
+      return
+    }
 
     if (this.closing) return
 
@@ -214,7 +217,8 @@ class PipeServer extends EventEmitter {
       })
 
       this.emit('connection', pipe)
-    } catch (err) { // TODO: Propagate errors
+    } catch (err) {
+      this.emit('error', err)
       pipe.destroy()
     }
   }
