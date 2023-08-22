@@ -6,7 +6,7 @@ const DEFAULT_READ_BUFFER = 65536
 
 const Pipe = module.exports = class Pipe extends Duplex {
   constructor (path, opts = {}) {
-    super({ mapWritable })
+    super({ mapWritable, eagerOpen: true })
 
     if (typeof path === 'object' && path !== null) {
       opts = path

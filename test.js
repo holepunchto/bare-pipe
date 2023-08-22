@@ -28,6 +28,14 @@ test('named pipe', (t) => {
     .end('hello from pipe\n')
 })
 
+test('path missing', async (t) => {
+  t.plan(1)
+
+  const pipe = new Pipe('does/not/exist')
+  pipe
+    .on('error', (err) => t.ok(err))
+})
+
 test('server', async (t) => {
   t.plan(2)
 
