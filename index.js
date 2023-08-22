@@ -107,6 +107,7 @@ const Pipe = module.exports = class Pipe extends Duplex {
   }
 
   _onconnect (err) {
+    if (!err) this.emit('connect')
     this._connected = true
     this._continueOpen(err)
   }
