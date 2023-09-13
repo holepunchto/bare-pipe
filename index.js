@@ -45,6 +45,14 @@ const Pipe = module.exports = class Pipe extends Duplex {
     }
   }
 
+  ref () {
+    binding.ref(this._handle)
+  }
+
+  unref () {
+    binding.unref(this._handle)
+  }
+
   static createServer (opts) {
     return new PipeServer(opts)
   }
@@ -189,6 +197,14 @@ class PipeServer extends EventEmitter {
     this.closing = true
 
     if (this.connections.size === 0) binding.close(this._handle)
+  }
+
+  ref () {
+    binding.ref(this._handle)
+  }
+
+  unref () {
+    binding.unref(this._handle)
   }
 
   _onconnection (err) {
