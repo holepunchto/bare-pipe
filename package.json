@@ -15,7 +15,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/holepunchto/bare-pipe.git"
+    "url": "git+https://github.com/holepunchto/bare-pipe.git"
   },
   "author": "Holepunch",
   "license": "Apache-2.0",
