@@ -25,6 +25,7 @@ const Pipe = module.exports = class Pipe extends Duplex {
 
     this._connected = typeof path !== 'string'
     this._reading = false
+    this._closing = false
     this._allowHalfOpen = allowHalfOpen
 
     this._buffer = Buffer.alloc(readBufferSize)
@@ -43,6 +44,8 @@ const Pipe = module.exports = class Pipe extends Duplex {
     } else if (typeof path === 'string') {
       binding.connect(this._handle, path)
     }
+
+    Pipe._pipes.add(this)
   }
 
   ref () {
@@ -80,9 +83,19 @@ const Pipe = module.exports = class Pipe extends Duplex {
     binding.end(this._handle)
   }
 
+  _predestroy () {
+    if (this._closing) return
+    this._closing = true
+    binding.close(this._handle)
+    Pipe._pipes.delete(this)
+  }
+
   _destroy (cb) {
+    if (this._closing) return cb(null)
+    this._closing = true
     this._pendingDestroy = cb
     binding.close(this._handle)
+    Pipe._pipes.delete(this)
   }
 
   _continueOpen (err) {
@@ -153,6 +166,8 @@ const Pipe = module.exports = class Pipe extends Duplex {
     this._handle = null
     this._continueDestroy()
   }
+
+  static _pipes = new Set()
 }
 
 class PipeServer extends EventEmitter {
@@ -179,6 +194,8 @@ class PipeServer extends EventEmitter {
     this.listening = false
     this.closing = false
     this.connections = new Set()
+
+    PipeServer._servers.add(this)
   }
 
   listen (name, backlog = 511) {
@@ -195,8 +212,7 @@ class PipeServer extends EventEmitter {
 
     if (this.closing) return
     this.closing = true
-
-    if (this.connections.size === 0) binding.close(this._handle)
+    this._closeMaybe()
   }
 
   ref () {
@@ -205,6 +221,13 @@ class PipeServer extends EventEmitter {
 
   unref () {
     binding.unref(this._handle)
+  }
+
+  _closeMaybe () {
+    if (this.closing && this.connections.size === 0) {
+      binding.close(this._handle)
+      PipeServer._servers.delete(this)
+    }
   }
 
   _onconnection (err) {
@@ -227,10 +250,7 @@ class PipeServer extends EventEmitter {
 
       pipe.on('close', () => {
         this.connections.delete(pipe)
-
-        if (this.closing && this.connections.size === 0) {
-          binding.close(this._handle)
-        }
+        this._closeMaybe()
       })
 
       this.emit('connection', pipe)
@@ -244,7 +264,20 @@ class PipeServer extends EventEmitter {
     this._handle = null
     this.emit('close')
   }
+
+  static _servers = new Set()
 }
+
+process
+  .on('exit', () => {
+    for (const pipe of Pipe._pipes) {
+      pipe.destroy()
+    }
+
+    for (const server of PipeServer._servers) {
+      server.close()
+    }
+  })
 
 const empty = Buffer.alloc(0)
 
