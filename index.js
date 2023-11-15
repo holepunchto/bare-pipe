@@ -1,4 +1,5 @@
-const EventEmitter = require('events')
+/* global Bare */
+const EventEmitter = require('bare-events')
 const { Duplex } = require('streamx')
 const binding = require('./binding')
 
@@ -268,7 +269,7 @@ class PipeServer extends EventEmitter {
   static _servers = new Set()
 }
 
-process
+Bare
   .on('exit', () => {
     for (const pipe of Pipe._pipes) {
       pipe.destroy()

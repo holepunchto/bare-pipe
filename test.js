@@ -1,4 +1,5 @@
 const test = require('brittle')
+const os = require('bare-os')
 const Pipe = require('.')
 
 test('stdout', (t) => {
@@ -64,7 +65,7 @@ test('server', async (t) => {
 
 function name () {
   const name = 'bare-pipe-' + Math.random().toString(16).slice(2) + Math.random().toString(16).slice(2)
-  return process.platform === 'win32'
+  return os.platform() === 'win32'
     ? '\\\\.\\pipe\\' + name
     : '/tmp/' + name + '.sock'
 }

@@ -1,4 +1,4 @@
-const path = require('path')
+const path = require('bare-path')
 const Pipe = require('..')
 
 const server = Pipe.createServer()
