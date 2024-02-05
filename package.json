@@ -10,8 +10,8 @@
     "CMakeLists.txt",
     "prebuilds"
   ],
-  "imports": {
-    "events": "bare-events"
+  "addon": {
+    "target": "bare_pipe"
   },
   "scripts": {
     "test": "standard && bare test.js"
@@ -35,8 +35,5 @@
     "bare-path": "^2.0.0",
     "brittle": "^3.2.1",
     "standard": "^17.0.0"
-  },
-  "addon": {
-    "target": "bare_pipe"
   }
 }
