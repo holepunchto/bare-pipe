@@ -341,7 +341,7 @@ bare_pipe_init (js_env_t *env, js_callback_info_t *info) {
 
   pipe->env = env;
 
-  err = js_get_typedarray_info(env, argv[0], NULL, (void **) &pipe->read.base, &pipe->read.len, NULL, NULL);
+  err = js_get_typedarray_info(env, argv[0], NULL, (void **) &pipe->read.base, (size_t *) &pipe->read.len, NULL, NULL);
   assert(err == 0);
 
   err = js_create_reference(env, argv[1], 1, &pipe->ctx);
@@ -528,7 +528,7 @@ bare_pipe_writev (js_env_t *env, js_callback_info_t *info) {
     assert(err == 0);
 
     uv_buf_t *buf = &bufs[i];
-    err = js_get_typedarray_info(env, item, NULL, (void **) &buf->base, &buf->len, NULL, NULL);
+    err = js_get_typedarray_info(env, item, NULL, (void **) &buf->base, (size_t *) &buf->len, NULL, NULL);
     assert(err == 0);
   }
 
