@@ -256,8 +256,9 @@ class PipeServer extends EventEmitter {
 
       this.emit('connection', pipe)
     } catch (err) {
-      this.emit('error', err)
       pipe.destroy()
+
+      throw err
     }
   }
 
