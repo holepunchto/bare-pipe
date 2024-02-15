@@ -1,8 +1,11 @@
+/* global Bare */
 const test = require('brittle')
 const os = require('bare-os')
 const Pipe = require('.')
 
-test('stdout', (t) => {
+const isWindows = Bare.platform === 'win32'
+
+test('stdout', { skip: isWindows }, (t) => {
   t.plan(1)
 
   const stdout = new Pipe(1)
@@ -11,7 +14,7 @@ test('stdout', (t) => {
     .end('hello from pipe\n')
 })
 
-test('stderr', (t) => {
+test('stderr', { skip: isWindows }, (t) => {
   t.plan(1)
 
   const stdout = new Pipe(2)
