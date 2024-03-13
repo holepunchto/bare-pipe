@@ -39,8 +39,10 @@ test('server', async (t) => {
     })
     .listen(n)
 
-  const client = new Pipe(n)
-  client.end('hello pipe')
+  setTimeout(() => {
+    const client = new Pipe(n)
+    client.end('hello pipe')
+  }, 100)
 
   await lc
 
