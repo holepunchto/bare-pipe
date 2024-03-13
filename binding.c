@@ -2,6 +2,7 @@
 #include <bare.h>
 #include <js.h>
 #include <stdlib.h>
+#include <string.h>
 #include <utf.h>
 #include <uv.h>
 
@@ -392,7 +393,7 @@ bare_pipe_connect (js_env_t *env, js_callback_info_t *info) {
 
   req->data = pipe;
 
-  uv_pipe_connect(req, &pipe->handle, (char *) path, on_connect);
+  uv_pipe_connect2(req, &pipe->handle, (char *) path, strlen((const char *) path), UV_PIPE_NO_TRUNCATE, on_connect);
 
   return NULL;
 }
@@ -451,7 +452,7 @@ bare_pipe_bind (js_env_t *env, js_callback_info_t *info) {
   err = js_get_value_uint32(env, argv[2], &backlog);
   assert(err == 0);
 
-  err = uv_pipe_bind(&pipe->handle, (char *) name);
+  err = uv_pipe_bind2(&pipe->handle, (char *) name, strlen((const char *) name), UV_PIPE_NO_TRUNCATE);
 
   if (err < 0) {
     js_throw_error(env, uv_err_name(err), uv_strerror(err));
