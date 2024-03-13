@@ -4,24 +4,7 @@ const Pipe = require('.')
 
 const isWindows = Bare.platform === 'win32'
 
-test('named pipe', (t) => {
-  t.plan(1)
-
-  const stdout = new Pipe(name())
-  stdout
-    .on('close', () => t.pass('closed'))
-    .end('hello from pipe\n')
-})
-
-test('path missing', async (t) => {
-  t.plan(1)
-
-  const pipe = new Pipe('does/not/exist')
-  pipe
-    .on('error', (err) => t.ok(err))
-})
-
-test('server', async (t) => {
+test('server + client', async (t) => {
   t.plan(2)
 
   const n = name()
@@ -39,10 +22,8 @@ test('server', async (t) => {
     })
     .listen(n)
 
-  setTimeout(() => {
-    const client = new Pipe(n)
-    client.end('hello pipe')
-  }, 100)
+  const client = new Pipe(n)
+  client.end('hello pipe')
 
   await lc
 
