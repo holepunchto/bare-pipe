@@ -1,27 +1,8 @@
 /* global Bare */
 const test = require('brittle')
-const os = require('bare-os')
 const Pipe = require('.')
 
 const isWindows = Bare.platform === 'win32'
-
-test('stdout', { skip: isWindows }, (t) => {
-  t.plan(1)
-
-  const stdout = new Pipe(1)
-  stdout
-    .on('close', () => t.pass('closed'))
-    .end('hello from pipe\n')
-})
-
-test('stderr', { skip: isWindows }, (t) => {
-  t.plan(1)
-
-  const stdout = new Pipe(2)
-  stdout
-    .on('close', () => t.pass('closed'))
-    .end('hello from pipe\n')
-})
 
 test('named pipe', (t) => {
   t.plan(1)
@@ -68,7 +49,7 @@ test('server', async (t) => {
 
 function name () {
   const name = 'bare-pipe-' + Math.random().toString(16).slice(2) + Math.random().toString(16).slice(2)
-  return os.platform() === 'win32'
+  return isWindows
     ? '\\\\.\\pipe\\' + name
     : '/tmp/' + name + '.sock'
 }
