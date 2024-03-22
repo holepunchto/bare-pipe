@@ -75,7 +75,7 @@ const Pipe = module.exports = class Pipe extends Duplex {
   }
 
   _writev (datas, cb) {
-    this._pendingWrite = cb
+    this._pendingWrite = [cb, datas]
     binding.writev(this._handle, datas)
   }
 
@@ -109,7 +109,7 @@ const Pipe = module.exports = class Pipe extends Duplex {
 
   _continueWrite (err) {
     if (this._pendingWrite === null) return
-    const cb = this._pendingWrite
+    const cb = this._pendingWrite[0]
     this._pendingWrite = null
     cb(err)
   }
