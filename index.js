@@ -3,9 +3,9 @@ const EventEmitter = require('bare-events')
 const { Duplex } = require('streamx')
 const binding = require('./binding')
 
-const DEFAULT_READ_BUFFER = 65536
+const defaultReadBufferSize = 65536
 
-const Pipe = module.exports = class Pipe extends Duplex {
+const Pipe = module.exports = exports = class Pipe extends Duplex {
   constructor (path, opts = {}) {
     super({ mapWritable, eagerOpen: true })
 
@@ -15,7 +15,7 @@ const Pipe = module.exports = class Pipe extends Duplex {
     }
 
     const {
-      readBufferSize = DEFAULT_READ_BUFFER,
+      readBufferSize = defaultReadBufferSize,
       allowHalfOpen = true
     } = opts
 
@@ -55,10 +55,6 @@ const Pipe = module.exports = class Pipe extends Duplex {
 
   unref () {
     binding.unref(this._handle)
-  }
-
-  static createServer (opts) {
-    return new PipeServer(opts)
   }
 
   _open (cb) {
@@ -171,12 +167,16 @@ const Pipe = module.exports = class Pipe extends Duplex {
   static _pipes = new Set()
 }
 
+exports.createServer = function createServer (opts) {
+  return new PipeServer(opts)
+}
+
 class PipeServer extends EventEmitter {
   constructor (opts = {}) {
     super()
 
     const {
-      readBufferSize = DEFAULT_READ_BUFFER,
+      readBufferSize = defaultReadBufferSize,
       allowHalfOpen = true
     } = opts
 
