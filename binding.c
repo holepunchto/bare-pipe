@@ -30,7 +30,7 @@ typedef struct {
 typedef utf8_t bare_pipe_path_t[4096 + 1 /* NULL */];
 
 static void
-on_connection (uv_stream_t *server, int status) {
+bare_pipe__on_connection (uv_stream_t *server, int status) {
   int err;
 
   bare_pipe_t *pipe = (bare_pipe_t *) server;
@@ -74,7 +74,7 @@ on_connection (uv_stream_t *server, int status) {
 }
 
 static void
-on_connect (uv_connect_t *req, int status) {
+bare_pipe__on_connect (uv_connect_t *req, int status) {
   int err;
 
   bare_pipe_t *pipe = (bare_pipe_t *) req->data;
@@ -118,7 +118,7 @@ on_connect (uv_connect_t *req, int status) {
 }
 
 static void
-on_write (uv_write_t *req, int status) {
+bare_pipe__on_write (uv_write_t *req, int status) {
   int err;
 
   bare_pipe_t *pipe = (bare_pipe_t *) req->data;
@@ -162,7 +162,7 @@ on_write (uv_write_t *req, int status) {
 }
 
 static void
-on_shutdown (uv_shutdown_t *req, int status) {
+bare_pipe__on_shutdown (uv_shutdown_t *req, int status) {
   int err;
 
   bare_pipe_t *pipe = (bare_pipe_t *) req->data;
@@ -206,7 +206,7 @@ on_shutdown (uv_shutdown_t *req, int status) {
 }
 
 static void
-on_read (uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf) {
+bare_pipe__on_read (uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf) {
   if (nread == UV_EOF) nread = 0;
   else if (nread == 0) return;
 
@@ -259,7 +259,7 @@ on_read (uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf) {
 }
 
 static void
-on_close (uv_handle_t *handle) {
+bare_pipe__on_close (uv_handle_t *handle) {
   int err;
 
   bare_pipe_t *pipe = (bare_pipe_t *) handle;
@@ -306,7 +306,7 @@ on_close (uv_handle_t *handle) {
 }
 
 static void
-on_alloc (uv_handle_t *handle, size_t suggested_size, uv_buf_t *buf) {
+bare_pipe__on_alloc (uv_handle_t *handle, size_t suggested_size, uv_buf_t *buf) {
   bare_pipe_t *pipe = (bare_pipe_t *) handle;
 
   *buf = pipe->read;
@@ -393,7 +393,7 @@ bare_pipe_connect (js_env_t *env, js_callback_info_t *info) {
 
   req->data = pipe;
 
-  uv_pipe_connect2(req, &pipe->handle, (char *) path, strlen((const char *) path), UV_PIPE_NO_TRUNCATE, on_connect);
+  uv_pipe_connect2(req, &pipe->handle, (char *) path, strlen((const char *) path), UV_PIPE_NO_TRUNCATE, bare_pipe__on_connect);
 
   return NULL;
 }
@@ -459,7 +459,7 @@ bare_pipe_bind (js_env_t *env, js_callback_info_t *info) {
     return NULL;
   }
 
-  err = uv_listen((uv_stream_t *) &pipe->handle, backlog, on_connection);
+  err = uv_listen((uv_stream_t *) &pipe->handle, backlog, bare_pipe__on_connection);
 
   if (err < 0) {
     js_throw_error(env, uv_err_name(err), uv_strerror(err));
@@ -537,7 +537,7 @@ bare_pipe_writev (js_env_t *env, js_callback_info_t *info) {
 
   req->data = pipe;
 
-  err = uv_write(req, (uv_stream_t *) &pipe->handle, bufs, bufs_len, on_write);
+  err = uv_write(req, (uv_stream_t *) &pipe->handle, bufs, bufs_len, bare_pipe__on_write);
 
   free(bufs);
 
@@ -569,7 +569,7 @@ bare_pipe_end (js_env_t *env, js_callback_info_t *info) {
 
   req->data = pipe;
 
-  err = uv_shutdown(req, (uv_stream_t *) &pipe->handle, on_shutdown);
+  err = uv_shutdown(req, (uv_stream_t *) &pipe->handle, bare_pipe__on_shutdown);
 
   if (err < 0) {
     js_throw_error(env, uv_err_name(err), uv_strerror(err));
@@ -597,7 +597,7 @@ bare_pipe_resume (js_env_t *env, js_callback_info_t *info) {
 
   if (!uv_is_readable((uv_stream_t *) &pipe->handle)) return NULL;
 
-  err = uv_read_start((uv_stream_t *) &pipe->handle, on_alloc, on_read);
+  err = uv_read_start((uv_stream_t *) &pipe->handle, bare_pipe__on_alloc, bare_pipe__on_read);
 
   if (err < 0) {
     js_throw_error(env, uv_err_name(err), uv_strerror(err));
@@ -651,7 +651,7 @@ bare_pipe_close (js_env_t *env, js_callback_info_t *info) {
   err = js_get_arraybuffer_info(env, argv[0], (void **) &pipe, NULL);
   assert(err == 0);
 
-  uv_close((uv_handle_t *) &pipe->handle, on_close);
+  uv_close((uv_handle_t *) &pipe->handle, bare_pipe__on_close);
 
   return NULL;
 }
@@ -700,66 +700,30 @@ bare_pipe_unref (js_env_t *env, js_callback_info_t *info) {
 
 static js_value_t *
 init (js_env_t *env, js_value_t *exports) {
-  {
-    js_value_t *fn;
-    js_create_function(env, "init", -1, bare_pipe_init, NULL, &fn);
-    js_set_named_property(env, exports, "init", fn);
+  int err;
+
+#define V(name, fn) \
+  { \
+    js_value_t *val; \
+    err = js_create_function(env, name, -1, fn, NULL, &val); \
+    assert(err == 0); \
+    err = js_set_named_property(env, exports, name, val); \
+    assert(err == 0); \
   }
-  {
-    js_value_t *fn;
-    js_create_function(env, "connect", -1, bare_pipe_connect, NULL, &fn);
-    js_set_named_property(env, exports, "connect", fn);
-  }
-  {
-    js_value_t *fn;
-    js_create_function(env, "open", -1, bare_pipe_open, NULL, &fn);
-    js_set_named_property(env, exports, "open", fn);
-  }
-  {
-    js_value_t *fn;
-    js_create_function(env, "bind", -1, bare_pipe_bind, NULL, &fn);
-    js_set_named_property(env, exports, "bind", fn);
-  }
-  {
-    js_value_t *fn;
-    js_create_function(env, "accept", -1, bare_pipe_accept, NULL, &fn);
-    js_set_named_property(env, exports, "accept", fn);
-  }
-  {
-    js_value_t *fn;
-    js_create_function(env, "writev", -1, bare_pipe_writev, NULL, &fn);
-    js_set_named_property(env, exports, "writev", fn);
-  }
-  {
-    js_value_t *fn;
-    js_create_function(env, "end", -1, bare_pipe_end, NULL, &fn);
-    js_set_named_property(env, exports, "end", fn);
-  }
-  {
-    js_value_t *fn;
-    js_create_function(env, "resume", -1, bare_pipe_resume, NULL, &fn);
-    js_set_named_property(env, exports, "resume", fn);
-  }
-  {
-    js_value_t *fn;
-    js_create_function(env, "pause", -1, bare_pipe_pause, NULL, &fn);
-    js_set_named_property(env, exports, "pause", fn);
-  }
-  {
-    js_value_t *fn;
-    js_create_function(env, "close", -1, bare_pipe_close, NULL, &fn);
-    js_set_named_property(env, exports, "close", fn);
-  }
-  {
-    js_value_t *fn;
-    js_create_function(env, "ref", -1, bare_pipe_ref, NULL, &fn);
-    js_set_named_property(env, exports, "ref", fn);
-  }
-  {
-    js_value_t *fn;
-    js_create_function(env, "unref", -1, bare_pipe_unref, NULL, &fn);
-    js_set_named_property(env, exports, "unref", fn);
-  }
+
+  V("init", bare_pipe_init)
+  V("connect", bare_pipe_connect)
+  V("open", bare_pipe_open)
+  V("bind", bare_pipe_bind)
+  V("accept", bare_pipe_accept)
+  V("writev", bare_pipe_writev)
+  V("end", bare_pipe_end)
+  V("resume", bare_pipe_resume)
+  V("pause", bare_pipe_pause)
+  V("close", bare_pipe_close)
+  V("ref", bare_pipe_ref)
+  V("unref", bare_pipe_unref)
+#undef V
 
   return exports;
 }
