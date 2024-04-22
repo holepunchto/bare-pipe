@@ -50,6 +50,14 @@ const Pipe = module.exports = exports = class Pipe extends Duplex {
     Pipe._pipes.add(this)
   }
 
+  get connecting () {
+    return (this._state & constants.state.CONNECTING) !== 0
+  }
+
+  get pending () {
+    return (this._state & constants.state.CONNECTED) === 0
+  }
+
   ref () {
     binding.ref(this._handle)
   }
