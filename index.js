@@ -2,6 +2,8 @@
 const EventEmitter = require('bare-events')
 const { Duplex } = require('streamx')
 const binding = require('./binding')
+const constants = require('./lib/constants')
+const errors = require('./lib/errors')
 
 const defaultReadBufferSize = 65536
 
@@ -19,15 +21,14 @@ const Pipe = module.exports = exports = class Pipe extends Duplex {
       allowHalfOpen = true
     } = opts
 
+    this._state = typeof path === 'string' ? constants.state.CONNECTING : constants.state.CONNECTED
+
+    this._allowHalfOpen = allowHalfOpen
+
     this._pendingOpen = null
     this._pendingWrite = null
     this._pendingFinal = null
     this._pendingDestroy = null
-
-    this._connected = typeof path !== 'string'
-    this._reading = false
-    this._closing = false
-    this._allowHalfOpen = allowHalfOpen
 
     this._buffer = Buffer.alloc(readBufferSize)
 
@@ -58,15 +59,16 @@ const Pipe = module.exports = exports = class Pipe extends Duplex {
   }
 
   _open (cb) {
+    if (this._state & constants.state.CONNECTED) return cb(null)
     this._pendingOpen = cb
-    this._continueOpen(null)
   }
 
   _read (cb) {
-    if (!this._reading) {
-      this._reading = true
+    if ((this._state & constants.state.READING) === 0) {
+      this._state |= constants.state.READING
       binding.resume(this._handle)
     }
+
     cb(null)
   }
 
@@ -81,22 +83,21 @@ const Pipe = module.exports = exports = class Pipe extends Duplex {
   }
 
   _predestroy () {
-    if (this._closing) return
-    this._closing = true
+    if (this._state & constants.state.CLOSING) return
+    this._state |= constants.state.CLOSING
     binding.close(this._handle)
     Pipe._pipes.delete(this)
   }
 
   _destroy (cb) {
-    if (this._closing) return cb(null)
-    this._closing = true
+    if (this._state & constants.state.CLOSING) return cb(null)
+    this._state |= constants.state.CLOSING
     this._pendingDestroy = cb
     binding.close(this._handle)
     Pipe._pipes.delete(this)
   }
 
   _continueOpen (err) {
-    if (!this._connected) return
     if (this._pendingOpen === null) return
     const cb = this._pendingOpen
     this._pendingOpen = null
@@ -125,13 +126,16 @@ const Pipe = module.exports = exports = class Pipe extends Duplex {
   }
 
   _onconnect (err) {
-    if (!err) this.emit('connect')
-    this._connected = true
-    this._continueOpen(err)
-  }
+    if (err) {
+      this.destroy(err)
+      return
+    }
 
-  _onwrite (err) {
-    this._continueWrite(err)
+    this._state |= constants.state.CONNECTED
+    this._state &= ~constants.state.CONNECTING
+    this._continueOpen()
+
+    this.emit('connect')
   }
 
   _onread (err, read) {
@@ -150,9 +154,13 @@ const Pipe = module.exports = exports = class Pipe extends Duplex {
     copy.set(this._buffer.subarray(0, read))
 
     if (this.push(copy) === false && this.destroying === false) {
-      this._reading = false
+      this._state &= ~constants.state.READING
       binding.pause(this._handle)
     }
+  }
+
+  _onwrite (err) {
+    this._continueWrite(err)
   }
 
   _onfinal (err) {
@@ -172,7 +180,12 @@ exports.createServer = function createServer (opts) {
 }
 
 class PipeServer extends EventEmitter {
-  constructor (opts = {}) {
+  constructor (opts = {}, onconnection) {
+    if (typeof opts === 'function') {
+      onconnection = opts
+      opts = {}
+    }
+
     super()
 
     const {
@@ -180,8 +193,12 @@ class PipeServer extends EventEmitter {
       allowHalfOpen = true
     } = opts
 
+    this._state = 0
+
     this._readBufferSize = readBufferSize
     this._allowHalfOpen = allowHalfOpen
+
+    this._connections = new Set()
 
     this._handle = binding.init(empty, this,
       this._onconnection,
@@ -192,27 +209,44 @@ class PipeServer extends EventEmitter {
       this._onclose
     )
 
-    this.listening = false
-    this.closing = false
-    this.connections = new Set()
+    if (onconnection) this.on('connection', onconnection)
 
     PipeServer._servers.add(this)
   }
 
-  listen (name, backlog = 511) {
-    if (this.listening) throw new Error('Server is already bound')
-    if (this.closing) throw new Error('Server is closed')
+  get listening () {
+    return (this._state & constants.state.LISTENING) !== 0
+  }
+
+  listen (name, backlog = 511, onlistening) {
+    if ((this._state & constants.state.LISTENING) !== 0) {
+      throw errors.SERVER_IS_LISTENING('Server is already listening')
+    }
+
+    if (this._state & constants.state.CLOSING) {
+      throw errors.SERVER_IS_CLOSED('Server is closed')
+    }
+
+    if (typeof backlog === 'function') {
+      onlistening = backlog
+      backlog = 511
+    }
 
     binding.bind(this._handle, name, backlog)
+
+    this._state |= constants.state.LISTENING
+
+    if (onlistening) this.once('listening', onlistening)
+
+    queueMicrotask(() => this.emit('listening'))
 
     return this
   }
 
   close (onclose) {
     if (onclose) this.once('close', onclose)
-
-    if (this.closing) return
-    this.closing = true
+    if (this._state & constants.state.CLOSING) return
+    this._state |= constants.state.CLOSING
     this._closeMaybe()
   }
 
@@ -225,7 +259,7 @@ class PipeServer extends EventEmitter {
   }
 
   _closeMaybe () {
-    if (this.closing && this.connections.size === 0) {
+    if ((this._state & constants.state.CLOSING) && this._connections.size === 0) {
       binding.close(this._handle)
       PipeServer._servers.delete(this)
     }
@@ -237,7 +271,7 @@ class PipeServer extends EventEmitter {
       return
     }
 
-    if (this.closing) return
+    if (this._state & constants.state.CLOSING) return
 
     const pipe = new Pipe({
       readBufferSize: this._readBufferSize,
@@ -247,10 +281,12 @@ class PipeServer extends EventEmitter {
     try {
       binding.accept(this._handle, pipe._handle)
 
-      this.connections.add(pipe)
+      pipe._state |= constants.state.CONNECTED
+
+      this._connections.add(pipe)
 
       pipe.on('close', () => {
-        this.connections.delete(pipe)
+        this._connections.delete(pipe)
         this._closeMaybe()
       })
 
