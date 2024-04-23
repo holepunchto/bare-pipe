@@ -350,6 +350,9 @@ const Server = exports.Server = class PipeServer extends EventEmitter {
   static _servers = new Set()
 }
 
+exports.constants = constants
+exports.errors = errors
+
 exports.createConnection = function createConnection (path, opts, onconnect) {
   if (typeof path !=='string') {
     opts = path || {}
