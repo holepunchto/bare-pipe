@@ -21,7 +21,7 @@ const Pipe = module.exports = exports = class Pipe extends Duplex {
       allowHalfOpen = true
     } = opts
 
-    this._state = typeof path === 'string' ? constants.state.CONNECTING : constants.state.CONNECTED
+    this._state = 0
 
     this._allowHalfOpen = allowHalfOpen
 
@@ -42,9 +42,9 @@ const Pipe = module.exports = exports = class Pipe extends Duplex {
     )
 
     if (typeof path === 'number') {
-      binding.open(this._handle, path)
+      this.open(path)
     } else if (typeof path === 'string') {
-      binding.connect(this._handle, path)
+      this.connect(path)
     }
 
     Pipe._pipes.add(this)
@@ -56,6 +56,37 @@ const Pipe = module.exports = exports = class Pipe extends Duplex {
 
   get pending () {
     return (this._state & constants.state.CONNECTED) === 0
+  }
+
+  open (fd, opts = {}) {
+    if (typeof fd!== 'number') {
+      opts = fd || {}
+      fd = opts.fd
+    }
+
+    binding.open(this._handle, path)
+
+    this._state |= constants.state.CONNECTED
+
+    return this
+  }
+
+  connect (path, opts = {}, onconnect) {
+    if (typeof path !== 'string') {
+      opts = path || {}
+      path = opts.path
+    } else if (typeof opts === 'function') {
+      onconnect = opts
+      opts = {}
+    }
+
+    binding.connect(this._handle, path)
+
+    this._state |= constants.state.CONNECTING
+
+    if (onconnect) this.once('connect', onconnect)
+
+    return this
   }
 
   ref () {
@@ -183,11 +214,7 @@ const Pipe = module.exports = exports = class Pipe extends Duplex {
   static _pipes = new Set()
 }
 
-exports.createServer = function createServer (opts) {
-  return new PipeServer(opts)
-}
-
-class PipeServer extends EventEmitter {
+exports.Server = class PipeServer extends EventEmitter {
   constructor (opts = {}, onconnection) {
     if (typeof opts === 'function') {
       onconnection = opts
@@ -314,6 +341,10 @@ class PipeServer extends EventEmitter {
   }
 
   static _servers = new Set()
+}
+
+exports.createServer = function createServer (opts, onconnection) {
+  return new exports.Server(opts, onconnection)
 }
 
 Bare
