@@ -221,7 +221,7 @@ const Pipe = module.exports = exports = class Pipe extends Duplex {
   static _pipes = new Set()
 }
 
-exports.Server = class PipeServer extends EventEmitter {
+const Server = exports.Server = class PipeServer extends EventEmitter {
   constructor (opts = {}, onconnection) {
     if (typeof opts === 'function') {
       onconnection = opts
@@ -363,7 +363,7 @@ exports.createConnection = function createConnection (path, opts, onconnect) {
 }
 
 exports.createServer = function createServer (opts, onconnection) {
-  return new exports.Server(opts, onconnection)
+  return new Server(opts, onconnection)
 }
 
 Bare
