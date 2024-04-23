@@ -240,13 +240,19 @@ class PipeServer extends EventEmitter {
       backlog = 511
     }
 
-    binding.bind(this._handle, name, backlog)
+    try {
+      binding.bind(this._handle, name, backlog)
 
-    this._state |= constants.state.LISTENING
+      this._state |= constants.state.LISTENING
 
-    if (onlistening) this.once('listening', onlistening)
+      if (onlistening) this.once('listening', onlistening)
 
-    queueMicrotask(() => this.emit('listening'))
+      queueMicrotask(() => this.emit('listening'))
+    } catch (err) {
+      queueMicrotask(() => {
+        if ((this._state & constants.state.CLOSING) === 0) this.emit('error', err)
+      })
+    }
 
     return this
   }
