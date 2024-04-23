@@ -59,12 +59,14 @@ const Pipe = module.exports = exports = class Pipe extends Duplex {
   }
 
   open (fd, opts = {}, onconnect) {
-    if (typeof fd !== 'number') {
-      opts = fd || {}
-      fd = opts.fd
-    } else if (typeof opts === 'function') {
+    if (typeof opts === 'function') {
       onconnect = opts
       opts = {}
+    }
+
+    if (typeof fd === 'object' && fd !== null) {
+      opts = fd || {}
+      fd = opts.fd
     }
 
     binding.open(this._handle, fd)
@@ -79,12 +81,14 @@ const Pipe = module.exports = exports = class Pipe extends Duplex {
   }
 
   connect (path, opts = {}, onconnect) {
-    if (typeof path !== 'string') {
-      opts = path || {}
-      path = opts.path
-    } else if (typeof opts === 'function') {
+    if (typeof opts === 'function') {
       onconnect = opts
       opts = {}
+    }
+
+    if (typeof path === 'object' && path !== null) {
+      opts = path || {}
+      path = opts.path
     }
 
     binding.connect(this._handle, path)
@@ -260,7 +264,7 @@ const Server = exports.Server = class PipeServer extends EventEmitter {
     return (this._state & constants.state.LISTENING) !== 0
   }
 
-  listen (name, backlog = 511, onlistening) {
+  listen (path, backlog = 511, opts = {}, onlistening) {
     if (this._state & constants.state.CLOSING) {
       throw errors.SERVER_IS_CLOSED('Server is closed')
     }
@@ -268,10 +272,19 @@ const Server = exports.Server = class PipeServer extends EventEmitter {
     if (typeof backlog === 'function') {
       onlistening = backlog
       backlog = 511
+    } else if (typeof opts === 'function') {
+      onlistening = opts
+      opts = {}
+    }
+
+    if (typeof path === 'object' && path !== null) {
+      opts = path || {}
+      path = opts.path
+      backlog = opts.backlog || 511
     }
 
     try {
-      binding.bind(this._handle, name, backlog)
+      binding.bind(this._handle, path, backlog)
 
       this._state |= constants.state.LISTENING
 
@@ -354,12 +367,14 @@ exports.constants = constants
 exports.errors = errors
 
 exports.createConnection = function createConnection (path, opts, onconnect) {
-  if (typeof path !== 'string') {
-    opts = path || {}
-    path = opts.path
-  } else if (typeof opts === 'function') {
+  if (typeof opts === 'function') {
     onconnect = opts
     opts = {}
+  }
+
+  if (typeof path === 'object' && path !== null) {
+    opts = path || {}
+    path = opts.path
   }
 
   return new Pipe(opts).connect(path, opts, onconnect)
