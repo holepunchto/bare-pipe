@@ -58,15 +58,22 @@ const Pipe = module.exports = exports = class Pipe extends Duplex {
     return (this._state & constants.state.CONNECTED) === 0
   }
 
-  open (fd, opts = {}) {
+  open (fd, opts = {}, onconnect) {
     if (typeof fd!== 'number') {
       opts = fd || {}
       fd = opts.fd
+    } else if (typeof opts === 'function') {
+      onconnect = opts
+      opts = {}
     }
 
     binding.open(this._handle, path)
 
     this._state |= constants.state.CONNECTED
+
+    if (onconnect) this.once('connect', onconnect)
+
+    queueMicrotask(() => this.emit('connect'))
 
     return this
   }
@@ -341,6 +348,18 @@ exports.Server = class PipeServer extends EventEmitter {
   }
 
   static _servers = new Set()
+}
+
+exports.createConnection = function createConnection (path, opts, onconnect) {
+  if (typeof path !=='string') {
+    opts = path || {}
+    path = opts.path
+  } else if (typeof opts === 'function') {
+    onconnect = opts
+    opts = {}
+  }
+
+  return new Pipe(opts).connect(path, opts, onconnect)
 }
 
 exports.createServer = function createServer (opts, onconnection) {
