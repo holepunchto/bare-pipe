@@ -227,10 +227,6 @@ class PipeServer extends EventEmitter {
   }
 
   listen (name, backlog = 511, onlistening) {
-    if ((this._state & constants.state.LISTENING) !== 0) {
-      throw errors.SERVER_IS_LISTENING('Server is already listening')
-    }
-
     if (this._state & constants.state.CLOSING) {
       throw errors.SERVER_IS_CLOSED('Server is closed')
     }
