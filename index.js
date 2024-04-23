@@ -59,7 +59,7 @@ const Pipe = module.exports = exports = class Pipe extends Duplex {
   }
 
   open (fd, opts = {}, onconnect) {
-    if (typeof fd!== 'number') {
+    if (typeof fd !== 'number') {
       opts = fd || {}
       fd = opts.fd
     } else if (typeof opts === 'function') {
@@ -67,7 +67,7 @@ const Pipe = module.exports = exports = class Pipe extends Duplex {
       opts = {}
     }
 
-    binding.open(this._handle, path)
+    binding.open(this._handle, fd)
 
     this._state |= constants.state.CONNECTED
 
@@ -354,7 +354,7 @@ exports.constants = constants
 exports.errors = errors
 
 exports.createConnection = function createConnection (path, opts, onconnect) {
-  if (typeof path !=='string') {
+  if (typeof path !== 'string') {
     opts = path || {}
     path = opts.path
   } else if (typeof opts === 'function') {
@@ -375,7 +375,7 @@ Bare
       pipe.destroy()
     }
 
-    for (const server of PipeServer._servers) {
+    for (const server of Server._servers) {
       server.close()
     }
   })
