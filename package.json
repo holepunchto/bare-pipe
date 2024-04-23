@@ -32,7 +32,7 @@
   "homepage": "https://github.com/holepunchto/bare-pipe#readme",
   "dependencies": {
     "bare-events": "^2.0.0",
-    "streamx": "^2.13.2"
+    "bare-stream": "^1.0.0"
   },
   "devDependencies": {
     "bare-path": "^2.0.0",
