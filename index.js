@@ -177,7 +177,8 @@ const Pipe = module.exports = exports = class Pipe extends Duplex {
 
   _onconnect (err) {
     if (err) {
-      this.destroy(err)
+      if (this._pendingOpen) this._continueOpen(err)
+      else this.destroy(err)
       return
     }
 
