@@ -245,6 +245,7 @@ const Server = exports.Server = class PipeServer extends EventEmitter {
     this._readBufferSize = readBufferSize
     this._allowHalfOpen = allowHalfOpen
 
+    this._path = null
     this._connections = new Set()
 
     this._handle = binding.init(empty, this,
@@ -263,6 +264,14 @@ const Server = exports.Server = class PipeServer extends EventEmitter {
 
   get listening () {
     return (this._state & constants.state.LISTENING) !== 0
+  }
+
+  address () {
+    if ((this._state & constants.state.LISTENING) === 0) {
+      return null
+    }
+
+    return this._path
   }
 
   listen (path, backlog = 511, opts = {}, onlistening) {
@@ -287,6 +296,7 @@ const Server = exports.Server = class PipeServer extends EventEmitter {
     try {
       binding.bind(this._handle, path, backlog)
 
+      this._path = path
       this._state |= constants.state.LISTENING
 
       if (onlistening) this.once('listening', onlistening)
