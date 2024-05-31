@@ -9,7 +9,7 @@ const defaultReadBufferSize = 65536
 
 const Pipe = module.exports = exports = class Pipe extends Duplex {
   constructor (path, opts = {}) {
-    super({ mapWritable, eagerOpen: true })
+    super({ eagerOpen: true })
 
     if (typeof path === 'object' && path !== null) {
       opts = path
@@ -113,18 +113,16 @@ const Pipe = module.exports = exports = class Pipe extends Duplex {
     this._pendingOpen = cb
   }
 
-  _read (cb) {
+  _read () {
     if ((this._state & constants.state.READING) === 0) {
       this._state |= constants.state.READING
       binding.resume(this._handle)
     }
-
-    cb(null)
   }
 
-  _writev (datas, cb) {
-    this._pendingWrite = [cb, datas]
-    binding.writev(this._handle, datas)
+  _writev (batch, cb) {
+    this._pendingWrite = [cb, batch]
+    binding.writev(this._handle, batch.map(({ chunk }) => chunk))
   }
 
   _final (cb) {
@@ -139,8 +137,8 @@ const Pipe = module.exports = exports = class Pipe extends Duplex {
     Pipe._pipes.delete(this)
   }
 
-  _destroy (cb) {
-    if (this._state & constants.state.CLOSING) return cb(null)
+  _destroy (err, cb) {
+    if (this._state & constants.state.CLOSING) return cb(err)
     this._state |= constants.state.CLOSING
     this._pendingDestroy = cb
     binding.close(this._handle)
@@ -409,7 +407,3 @@ Bare
 const empty = Buffer.alloc(0)
 
 function noop () {}
-
-function mapWritable (buf) {
-  return typeof buf === 'string' ? Buffer.from(buf) : buf
-}
