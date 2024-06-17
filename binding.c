@@ -27,6 +27,11 @@ typedef struct {
   js_ref_t *on_close;
 } bare_pipe_t;
 
+enum {
+  bare_pipe_readable = 0x1,
+  bare_pipe_writable = 0x2
+};
+
 typedef utf8_t bare_pipe_path_t[4096 + 1 /* NULL */];
 
 static void
@@ -393,7 +398,12 @@ bare_pipe_connect (js_env_t *env, js_callback_info_t *info) {
 
   req->data = pipe;
 
-  uv_pipe_connect2(req, &pipe->handle, (char *) path, strlen((const char *) path), UV_PIPE_NO_TRUNCATE, bare_pipe__on_connect);
+  err = uv_pipe_connect2(req, &pipe->handle, (char *) path, strlen((const char *) path), UV_PIPE_NO_TRUNCATE, bare_pipe__on_connect);
+
+  if (err < 0) {
+    js_throw_error(env, uv_err_name(err), uv_strerror(err));
+    return NULL;
+  }
 
   return NULL;
 }
@@ -425,7 +435,21 @@ bare_pipe_open (js_env_t *env, js_callback_info_t *info) {
     return NULL;
   }
 
-  return NULL;
+  uint32_t status = 0;
+
+  if (uv_is_readable((uv_stream_t *) &pipe->handle)) {
+    status |= bare_pipe_readable;
+  }
+
+  if (uv_is_writable((uv_stream_t *) &pipe->handle)) {
+    status |= bare_pipe_writable;
+  }
+
+  js_value_t *result;
+  err = js_create_uint32(env, status, &result);
+  assert(err == 0);
+
+  return result;
 }
 
 static js_value_t *
@@ -699,6 +723,35 @@ bare_pipe_unref (js_env_t *env, js_callback_info_t *info) {
 }
 
 static js_value_t *
+bare_pipe_pipe (js_env_t *env, js_callback_info_t *info) {
+  int err;
+
+  uv_file fds[2];
+  err = uv_pipe(fds, 0, 0);
+  assert(err == 0);
+
+  js_value_t *result;
+  err = js_create_array_with_length(env, 2, &result);
+  assert(err == 0);
+
+  js_value_t *read;
+  err = js_create_int64(env, fds[0], &read);
+  assert(err == 0);
+
+  js_value_t *write;
+  err = js_create_int64(env, fds[1], &write);
+  assert(err == 0);
+
+  err = js_set_element(env, result, 0, read);
+  assert(err == 0);
+
+  err = js_set_element(env, result, 1, write);
+  assert(err == 0);
+
+  return result;
+}
+
+static js_value_t *
 bare_pipe_exports (js_env_t *env, js_value_t *exports) {
   int err;
 
@@ -723,6 +776,20 @@ bare_pipe_exports (js_env_t *env, js_value_t *exports) {
   V("close", bare_pipe_close)
   V("ref", bare_pipe_ref)
   V("unref", bare_pipe_unref)
+  V("pipe", bare_pipe_pipe)
+#undef V
+
+#define V(name, n) \
+  { \
+    js_value_t *val; \
+    err = js_create_uint32(env, n, &val); \
+    assert(err == 0); \
+    err = js_set_named_property(env, exports, name, val); \
+    assert(err == 0); \
+  }
+
+  V("READABLE", bare_pipe_readable)
+  V("WRITABLE", bare_pipe_writable)
 #undef V
 
   return exports;

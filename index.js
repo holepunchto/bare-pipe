@@ -25,6 +25,9 @@ const Pipe = module.exports = exports = class Pipe extends Duplex {
 
     this._allowHalfOpen = allowHalfOpen
 
+    this._fd = -1
+    this._path = null
+
     this._pendingOpen = null
     this._pendingWrite = null
     this._pendingFinal = null
@@ -58,6 +61,22 @@ const Pipe = module.exports = exports = class Pipe extends Duplex {
     return (this._state & constants.state.CONNECTED) === 0
   }
 
+  get readyState () {
+    if (this._state & constants.state.READABLE && this._state & constants.state.WRITABLE) {
+      return 'open'
+    }
+
+    if (this._state & constants.state.READABLE) {
+      return 'readOnly'
+    }
+
+    if (this._state & constants.state.WRITABLE) {
+      return 'writeOnly'
+    }
+
+    return 'opening'
+  }
+
   open (fd, opts = {}, onconnect) {
     if (typeof opts === 'function') {
       onconnect = opts
@@ -69,18 +88,41 @@ const Pipe = module.exports = exports = class Pipe extends Duplex {
       fd = opts.fd
     }
 
-    binding.open(this._handle, fd)
+    try {
+      const status = binding.open(this._handle, fd)
 
-    this._state |= constants.state.CONNECTED
+      this._state |= constants.state.CONNECTED
+      this._fd = fd
 
-    if (onconnect) this.once('connect', onconnect)
+      if (status & binding.READABLE) {
+        this._state |= constants.state.READABLE
+      } else {
+        this.push(null)
+      }
 
-    queueMicrotask(() => this.emit('connect'))
+      if (status & binding.WRITABLE) {
+        this._state |= constants.state.WRITABLE
+      } else {
+        this.end()
+      }
+
+      if (onconnect) this.once('connect', onconnect)
+
+      queueMicrotask(() => this.emit('connect'))
+    } catch (err) {
+      queueMicrotask(() => this.destroy(err))
+    }
 
     return this
   }
 
   connect (path, opts = {}, onconnect) {
+    if (this._state & constants.state.CONNECTING || this._state & constants.state.CONNECTED) {
+      throw errors.PIPE_ALREADY_CONNECTED('Pipe is already connected')
+    }
+
+    this._state |= constants.state.CONNECTING
+
     if (typeof opts === 'function') {
       onconnect = opts
       opts = {}
@@ -91,11 +133,15 @@ const Pipe = module.exports = exports = class Pipe extends Duplex {
       path = opts.path
     }
 
-    binding.connect(this._handle, path)
+    try {
+      binding.connect(this._handle, path)
 
-    this._state |= constants.state.CONNECTING
+      this._path = path
 
-    if (onconnect) this.once('connect', onconnect)
+      if (onconnect) this.once('connect', onconnect)
+    } catch (err) {
+      queueMicrotask(() => this.destroy(err))
+    }
 
     return this
   }
@@ -126,8 +172,12 @@ const Pipe = module.exports = exports = class Pipe extends Duplex {
   }
 
   _final (cb) {
-    this._pendingFinal = cb
-    binding.end(this._handle)
+    if (this._state & constants.state.READABLE && this._state & constants.state.WRITABLE) {
+      this._pendingFinal = cb
+      binding.end(this._handle)
+    } else {
+      cb(null)
+    }
   }
 
   _predestroy () {
@@ -180,7 +230,7 @@ const Pipe = module.exports = exports = class Pipe extends Duplex {
       return
     }
 
-    this._state |= constants.state.CONNECTED
+    this._state |= constants.state.CONNECTED | constants.state.READABLE | constants.state.WRITABLE
     this._state &= ~constants.state.CONNECTING
     this._continueOpen()
 
@@ -224,6 +274,12 @@ const Pipe = module.exports = exports = class Pipe extends Duplex {
   static _pipes = new Set()
 }
 
+exports.Pipe = exports
+
+exports.pipe = function pipe () {
+  return binding.pipe()
+}
+
 const Server = exports.Server = class PipeServer extends EventEmitter {
   constructor (opts = {}, onconnection) {
     if (typeof opts === 'function') {
@@ -246,14 +302,8 @@ const Server = exports.Server = class PipeServer extends EventEmitter {
     this._path = null
     this._connections = new Set()
 
-    this._handle = binding.init(empty, this,
-      this._onconnection,
-      noop,
-      noop,
-      noop,
-      noop,
-      this._onclose
-    )
+    this._error = null
+    this._handle = null
 
     if (onconnection) this.on('connection', onconnection)
 
@@ -261,11 +311,11 @@ const Server = exports.Server = class PipeServer extends EventEmitter {
   }
 
   get listening () {
-    return (this._state & constants.state.LISTENING) !== 0
+    return (this._state & constants.state.BOUND) !== 0
   }
 
   address () {
-    if ((this._state & constants.state.LISTENING) === 0) {
+    if ((this._state & constants.state.BOUND) === 0) {
       return null
     }
 
@@ -273,9 +323,15 @@ const Server = exports.Server = class PipeServer extends EventEmitter {
   }
 
   listen (path, backlog = 511, opts = {}, onlistening) {
+    if (this._state & constants.state.BINDING || this._state & constants.state.BOUND) {
+      throw errors.SERVER_ALREADY_LISTENING('Server is already listening')
+    }
+
     if (this._state & constants.state.CLOSING) {
       throw errors.SERVER_IS_CLOSED('Server is closed')
     }
+
+    this._state |= constants.state.BINDING
 
     if (typeof backlog === 'function') {
       onlistening = backlog
@@ -291,19 +347,31 @@ const Server = exports.Server = class PipeServer extends EventEmitter {
       backlog = opts.backlog || 511
     }
 
+    this._handle = binding.init(empty, this,
+      this._onconnection,
+      noop,
+      noop,
+      noop,
+      noop,
+      this._onclose
+    )
+
+    if (this._state & constants.state.UNREFED) binding.unref(this._handle)
+
     try {
       binding.bind(this._handle, path, backlog)
 
       this._path = path
-      this._state |= constants.state.LISTENING
+      this._state |= constants.state.BOUND
+      this._state &= ~constants.state.BINDING
 
       if (onlistening) this.once('listening', onlistening)
 
       queueMicrotask(() => this.emit('listening'))
     } catch (err) {
-      queueMicrotask(() => {
-        if ((this._state & constants.state.CLOSING) === 0) this.emit('error', err)
-      })
+      this._error = err
+
+      binding.close(this._handle)
     }
 
     return this
@@ -317,16 +385,19 @@ const Server = exports.Server = class PipeServer extends EventEmitter {
   }
 
   ref () {
-    binding.ref(this._handle)
+    this._state &= ~constants.state.UNREFED
+    if (this._handle !== null)binding.ref(this._handle)
   }
 
   unref () {
-    binding.unref(this._handle)
+    this._state |= constants.state.UNREFED
+    if (this._handle !== null)binding.unref(this._handle)
   }
 
   _closeMaybe () {
     if ((this._state & constants.state.CLOSING) && this._connections.size === 0) {
-      binding.close(this._handle)
+      if (this._handle !== null)binding.close(this._handle)
+      else queueMicrotask(() => this.emit('close'))
       PipeServer._servers.delete(this)
     }
   }
@@ -348,6 +419,7 @@ const Server = exports.Server = class PipeServer extends EventEmitter {
       binding.accept(this._handle, pipe._handle)
 
       pipe._state |= constants.state.CONNECTED
+      pipe._path = this._path
 
       this._connections.add(pipe)
 
@@ -365,8 +437,14 @@ const Server = exports.Server = class PipeServer extends EventEmitter {
   }
 
   _onclose () {
+    const err = this._error
+
+    this._state &= ~constants.state.BINDING
+    this._error = null
     this._handle = null
-    this.emit('close')
+
+    if (err) this.emit('error', err)
+    else this.emit('close')
   }
 
   static _servers = new Set()
