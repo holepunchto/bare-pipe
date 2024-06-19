@@ -110,7 +110,10 @@ const Pipe = module.exports = exports = class Pipe extends Duplex {
 
       queueMicrotask(() => this.emit('connect'))
     } catch (err) {
-      queueMicrotask(() => this.destroy(err))
+      queueMicrotask(() => {
+        if (this._pendingOpen) this._pendingOpen(err)
+        else this.destroy(err)
+      })
     }
 
     return this
@@ -140,7 +143,8 @@ const Pipe = module.exports = exports = class Pipe extends Duplex {
 
       if (onconnect) this.once('connect', onconnect)
     } catch (err) {
-      queueMicrotask(() => this.destroy(err))
+      if (this._pendingOpen) this._pendingOpen(err)
+      else this.destroy(err)
     }
 
     return this
