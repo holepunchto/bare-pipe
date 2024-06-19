@@ -280,8 +280,19 @@ const Pipe = module.exports = exports = class Pipe extends Duplex {
   _onspawn (readable, writable) {
     this._state |= constants.state.CONNECTED
 
-    if (readable) this._state |= constants.state.READABLE
-    if (writable) this._state |= constants.state.WRITABLE
+    if (readable) {
+      this._state |= constants.state.READABLE
+    } else {
+      this.push(null)
+    }
+
+    if (writable) {
+      this._state |= constants.state.WRITABLE
+    } else {
+      this.end()
+    }
+
+    this._continueOpen()
   }
 
   static _pipes = new Set()
