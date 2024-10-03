@@ -277,24 +277,6 @@ const Pipe = module.exports = exports = class Pipe extends Duplex {
     this._continueDestroy()
   }
 
-  _onspawn (readable, writable) {
-    this._state |= constants.state.CONNECTED
-
-    if (readable) {
-      this._state |= constants.state.READABLE
-    } else {
-      this.push(null)
-    }
-
-    if (writable) {
-      this._state |= constants.state.WRITABLE
-    } else {
-      this.end()
-    }
-
-    this._continueOpen()
-  }
-
   static _pipes = new Set()
 }
 
@@ -442,7 +424,7 @@ const Server = exports.Server = class PipeServer extends EventEmitter {
     try {
       binding.accept(this._handle, pipe._handle)
 
-      pipe._state |= constants.state.CONNECTED
+      pipe._state |= constants.state.CONNECTED | constants.state.READABLE | constants.state.WRITABLE
       pipe._path = this._path
 
       this._connections.add(pipe)
