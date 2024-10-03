@@ -5,7 +5,7 @@ const Pipe = require('.')
 const isWindows = Bare.platform === 'win32'
 
 test('server + client', async (t) => {
-  t.plan(2)
+  t.plan(3)
 
   const n = name()
 
@@ -23,7 +23,9 @@ test('server + client', async (t) => {
     .listen(n)
 
   const client = new Pipe(n)
-  client.end('hello pipe')
+  client
+    .on('close', () => t.pass('client closed'))
+    .end('hello pipe')
 
   await lc
 
