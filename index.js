@@ -410,17 +410,17 @@ const Server = exports.Server = class PipeServer extends EventEmitter {
 
   ref () {
     this._state &= ~constants.state.UNREFED
-    if (this._handle !== null)binding.ref(this._handle)
+    if (this._handle !== null) binding.ref(this._handle)
   }
 
   unref () {
     this._state |= constants.state.UNREFED
-    if (this._handle !== null)binding.unref(this._handle)
+    if (this._handle !== null) binding.unref(this._handle)
   }
 
   _closeMaybe () {
     if ((this._state & constants.state.CLOSING) && this._connections.size === 0) {
-      if (this._handle !== null)binding.close(this._handle)
+      if (this._handle !== null) binding.close(this._handle)
       else queueMicrotask(() => this.emit('close'))
       PipeServer._servers.delete(this)
     }
@@ -442,9 +442,8 @@ const Server = exports.Server = class PipeServer extends EventEmitter {
     try {
       binding.accept(this._handle, pipe._handle)
 
-      pipe._state |= constants.state.CONNECTED | constants.state.READABLE | constants.state.WRITABLE
-
       pipe._path = this._path
+      pipe._state |= constants.state.CONNECTED | constants.state.READABLE | constants.state.WRITABLE
 
       this._connections.add(pipe)
 
