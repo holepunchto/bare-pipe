@@ -442,7 +442,8 @@ const Server = exports.Server = class PipeServer extends EventEmitter {
     try {
       binding.accept(this._handle, pipe._handle)
 
-      pipe._state |= constants.state.CONNECTED
+      pipe._state |= constants.state.CONNECTED | constants.state.READABLE | constants.state.WRITABLE
+
       pipe._path = this._path
 
       this._connections.add(pipe)

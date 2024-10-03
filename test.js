@@ -5,27 +5,98 @@ const Pipe = require('.')
 const isWindows = Bare.platform === 'win32'
 
 test('server + client', async (t) => {
-  t.plan(3)
+  t.plan(2)
 
   const n = name()
 
   const lc = t.test('lifecycle')
-  lc.plan(1)
+  lc.plan(6)
 
   const server = Pipe.createServer()
   server
     .on('close', () => t.pass('server closed'))
     .on('connection', (pipe) => {
       pipe
-        .on('data', (data) => lc.alike(data, Buffer.from('hello pipe')))
-        .end()
+        .on('close', () => lc.pass('server socket closed'))
+        .on('data', (data) => lc.alike(data, Buffer.from('hello server')))
+        .on('end', () => lc.pass('server ended'))
+        .end('hello client')
     })
     .listen(n)
 
   const client = new Pipe(n)
   client
-    .on('close', () => t.pass('client closed'))
-    .end('hello pipe')
+    .on('close', () => lc.pass('client socket closed'))
+    .on('data', (data) => lc.alike(data, Buffer.from('hello client')))
+    .on('end', () => lc.pass('client ended'))
+    .end('hello server')
+
+  await lc
+
+  server.close()
+})
+
+test('server + client, only server writes', async (t) => {
+  t.plan(2)
+
+  const n = name()
+
+  const lc = t.test('lifecycle')
+  lc.plan(5)
+
+  const server = Pipe.createServer()
+  server
+    .on('close', () => t.pass('server closed'))
+    .on('connection', (pipe) => {
+      pipe
+        .on('close', () => lc.pass('server socket closed'))
+        .on('data', (data) => lc.alike(data, Buffer.from('hello server')))
+        .on('end', () => lc.pass('server ended'))
+        .end('hello client')
+    })
+    .listen(n)
+
+  const client = new Pipe(n)
+  client
+    .on('close', () => lc.pass('client socket closed'))
+    .on('data', (data) => lc.alike(data, Buffer.from('hello client')))
+    .on('end', () => {
+      lc.pass('client ended')
+      client.end()
+    })
+
+  await lc
+
+  server.close()
+})
+
+test('server + client, only client writes', async (t) => {
+  t.plan(2)
+
+  const n = name()
+
+  const lc = t.test('lifecycle')
+  lc.plan(5)
+
+  const server = Pipe.createServer()
+  server
+    .on('close', () => t.pass('server closed'))
+    .on('connection', (pipe) => {
+      pipe
+        .on('close', () => lc.pass('server socket closed'))
+        .on('data', (data) => lc.alike(data, Buffer.from('hello server')))
+        .on('end', () => {
+          lc.pass('server ended')
+          pipe.end()
+        })
+    })
+    .listen(n)
+
+  const client = new Pipe(n)
+  client
+    .on('close', () => lc.pass('client socket closed'))
+    .on('end', () => lc.pass('client ended'))
+    .end('hello server')
 
   await lc
 
