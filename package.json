@@ -37,6 +37,7 @@
   "devDependencies": {
     "bare-path": "^3.0.0",
     "brittle": "^3.2.1",
+    "cmake-bare": "^1.1.6",
     "standard": "^17.0.0"
   }
 }
