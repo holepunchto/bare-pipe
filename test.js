@@ -117,9 +117,10 @@ test('pipe', async (t) => {
   write.end('hello pipe')
 })
 
-function name () {
-  const name = 'bare-pipe-' + Math.random().toString(16).slice(2) + Math.random().toString(16).slice(2)
-  return isWindows
-    ? '\\\\.\\pipe\\' + name
-    : '/tmp/' + name + '.sock'
+function name() {
+  const name =
+    'bare-pipe-' +
+    Math.random().toString(16).slice(2) +
+    Math.random().toString(16).slice(2)
+  return isWindows ? '\\\\.\\pipe\\' + name : '/tmp/' + name + '.sock'
 }

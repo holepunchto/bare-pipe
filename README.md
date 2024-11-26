@@ -8,7 +8,7 @@ npm i bare-pipe
 
 ## Usage
 
-``` js
+```js
 const Pipe = require('bare-pipe')
 
 const stdout = new Pipe(1)
