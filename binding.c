@@ -25,6 +25,9 @@ typedef struct {
   js_ref_t *on_end;
   js_ref_t *on_read;
   js_ref_t *on_close;
+
+  js_deferred_teardown_t *teardown;
+  bool exiting;
 } bare_pipe_t;
 
 enum {
@@ -35,7 +38,7 @@ enum {
 typedef utf8_t bare_pipe_path_t[4096 + 1 /* NULL */];
 
 static void
-bare_pipe__on_connection (uv_stream_t *server, int status) {
+bare_pipe__on_connection(uv_stream_t *server, int status) {
   int err;
 
   bare_pipe_t *pipe = (bare_pipe_t *) server;
@@ -79,7 +82,7 @@ bare_pipe__on_connection (uv_stream_t *server, int status) {
 }
 
 static void
-bare_pipe__on_connect (uv_connect_t *req, int status) {
+bare_pipe__on_connect(uv_connect_t *req, int status) {
   int err;
 
   bare_pipe_t *pipe = (bare_pipe_t *) req->data;
@@ -123,7 +126,7 @@ bare_pipe__on_connect (uv_connect_t *req, int status) {
 }
 
 static void
-bare_pipe__on_write (uv_write_t *req, int status) {
+bare_pipe__on_write(uv_write_t *req, int status) {
   int err;
 
   bare_pipe_t *pipe = (bare_pipe_t *) req->data;
@@ -167,7 +170,7 @@ bare_pipe__on_write (uv_write_t *req, int status) {
 }
 
 static void
-bare_pipe__on_shutdown (uv_shutdown_t *req, int status) {
+bare_pipe__on_shutdown(uv_shutdown_t *req, int status) {
   int err;
 
   bare_pipe_t *pipe = (bare_pipe_t *) req->data;
@@ -211,7 +214,7 @@ bare_pipe__on_shutdown (uv_shutdown_t *req, int status) {
 }
 
 static void
-bare_pipe__on_read (uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf) {
+bare_pipe__on_read(uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf) {
   if (nread == UV_EOF) nread = 0;
   else if (nread == 0) return;
 
@@ -264,12 +267,14 @@ bare_pipe__on_read (uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf) {
 }
 
 static void
-bare_pipe__on_close (uv_handle_t *handle) {
+bare_pipe__on_close(uv_handle_t *handle) {
   int err;
 
   bare_pipe_t *pipe = (bare_pipe_t *) handle;
 
   js_env_t *env = pipe->env;
+
+  if (pipe->exiting) goto finalize;
 
   js_handle_scope_t *scope;
   err = js_open_handle_scope(env, &scope);
@@ -284,6 +289,13 @@ bare_pipe__on_close (uv_handle_t *handle) {
   assert(err == 0);
 
   js_call_function(env, ctx, on_close, 0, NULL, NULL);
+
+  err = js_close_handle_scope(env, scope);
+  assert(err == 0);
+
+finalize:
+  err = js_finish_deferred_teardown_callback(pipe->teardown);
+  assert(err == 0);
 
   err = js_delete_reference(env, pipe->on_connection);
   assert(err == 0);
@@ -305,20 +317,26 @@ bare_pipe__on_close (uv_handle_t *handle) {
 
   err = js_delete_reference(env, pipe->ctx);
   assert(err == 0);
-
-  err = js_close_handle_scope(env, scope);
-  assert(err == 0);
 }
 
 static void
-bare_pipe__on_alloc (uv_handle_t *handle, size_t suggested_size, uv_buf_t *buf) {
+bare_pipe__on_teardown(js_deferred_teardown_t *handle, void *data) {
+  bare_pipe_t *pipe = (bare_pipe_t *) data;
+
+  pipe->exiting = true;
+
+  uv_close((uv_handle_t *) &pipe->handle, bare_pipe__on_close);
+}
+
+static void
+bare_pipe__on_alloc(uv_handle_t *handle, size_t suggested_size, uv_buf_t *buf) {
   bare_pipe_t *pipe = (bare_pipe_t *) handle;
 
   *buf = pipe->read;
 }
 
 static js_value_t *
-bare_pipe_init (js_env_t *env, js_callback_info_t *info) {
+bare_pipe_init(js_env_t *env, js_callback_info_t *info) {
   int err;
 
   size_t argc = 8;
@@ -346,6 +364,7 @@ bare_pipe_init (js_env_t *env, js_callback_info_t *info) {
   }
 
   pipe->env = env;
+  pipe->exiting = false;
 
   err = js_get_typedarray_info(env, argv[0], NULL, (void **) &pipe->read.base, (size_t *) &pipe->read.len, NULL, NULL);
   assert(err == 0);
@@ -371,11 +390,14 @@ bare_pipe_init (js_env_t *env, js_callback_info_t *info) {
   err = js_create_reference(env, argv[7], 1, &pipe->on_close);
   assert(err == 0);
 
+  err = js_add_deferred_teardown_callback(env, bare_pipe__on_teardown, (void *) pipe, &pipe->teardown);
+  assert(err == 0);
+
   return handle;
 }
 
 static js_value_t *
-bare_pipe_connect (js_env_t *env, js_callback_info_t *info) {
+bare_pipe_connect(js_env_t *env, js_callback_info_t *info) {
   int err;
 
   size_t argc = 2;
@@ -409,7 +431,7 @@ bare_pipe_connect (js_env_t *env, js_callback_info_t *info) {
 }
 
 static js_value_t *
-bare_pipe_open (js_env_t *env, js_callback_info_t *info) {
+bare_pipe_open(js_env_t *env, js_callback_info_t *info) {
   int err;
 
   size_t argc = 2;
@@ -453,7 +475,7 @@ bare_pipe_open (js_env_t *env, js_callback_info_t *info) {
 }
 
 static js_value_t *
-bare_pipe_bind (js_env_t *env, js_callback_info_t *info) {
+bare_pipe_bind(js_env_t *env, js_callback_info_t *info) {
   int err;
 
   size_t argc = 3;
@@ -494,7 +516,7 @@ bare_pipe_bind (js_env_t *env, js_callback_info_t *info) {
 }
 
 static js_value_t *
-bare_pipe_accept (js_env_t *env, js_callback_info_t *info) {
+bare_pipe_accept(js_env_t *env, js_callback_info_t *info) {
   int err;
 
   size_t argc = 2;
@@ -524,7 +546,7 @@ bare_pipe_accept (js_env_t *env, js_callback_info_t *info) {
 }
 
 static js_value_t *
-bare_pipe_writev (js_env_t *env, js_callback_info_t *info) {
+bare_pipe_writev(js_env_t *env, js_callback_info_t *info) {
   int err;
 
   size_t argc = 2;
@@ -574,7 +596,7 @@ bare_pipe_writev (js_env_t *env, js_callback_info_t *info) {
 }
 
 static js_value_t *
-bare_pipe_end (js_env_t *env, js_callback_info_t *info) {
+bare_pipe_end(js_env_t *env, js_callback_info_t *info) {
   int err;
 
   size_t argc = 1;
@@ -604,7 +626,7 @@ bare_pipe_end (js_env_t *env, js_callback_info_t *info) {
 }
 
 static js_value_t *
-bare_pipe_resume (js_env_t *env, js_callback_info_t *info) {
+bare_pipe_resume(js_env_t *env, js_callback_info_t *info) {
   int err;
 
   size_t argc = 1;
@@ -632,7 +654,7 @@ bare_pipe_resume (js_env_t *env, js_callback_info_t *info) {
 }
 
 static js_value_t *
-bare_pipe_pause (js_env_t *env, js_callback_info_t *info) {
+bare_pipe_pause(js_env_t *env, js_callback_info_t *info) {
   int err;
 
   size_t argc = 1;
@@ -660,7 +682,7 @@ bare_pipe_pause (js_env_t *env, js_callback_info_t *info) {
 }
 
 static js_value_t *
-bare_pipe_close (js_env_t *env, js_callback_info_t *info) {
+bare_pipe_close(js_env_t *env, js_callback_info_t *info) {
   int err;
 
   size_t argc = 1;
@@ -681,7 +703,7 @@ bare_pipe_close (js_env_t *env, js_callback_info_t *info) {
 }
 
 static js_value_t *
-bare_pipe_ref (js_env_t *env, js_callback_info_t *info) {
+bare_pipe_ref(js_env_t *env, js_callback_info_t *info) {
   int err;
 
   size_t argc = 1;
@@ -702,7 +724,7 @@ bare_pipe_ref (js_env_t *env, js_callback_info_t *info) {
 }
 
 static js_value_t *
-bare_pipe_unref (js_env_t *env, js_callback_info_t *info) {
+bare_pipe_unref(js_env_t *env, js_callback_info_t *info) {
   int err;
 
   size_t argc = 1;
@@ -723,7 +745,7 @@ bare_pipe_unref (js_env_t *env, js_callback_info_t *info) {
 }
 
 static js_value_t *
-bare_pipe_pipe (js_env_t *env, js_callback_info_t *info) {
+bare_pipe_pipe(js_env_t *env, js_callback_info_t *info) {
   int err;
 
   uv_file fds[2];
@@ -752,7 +774,7 @@ bare_pipe_pipe (js_env_t *env, js_callback_info_t *info) {
 }
 
 static js_value_t *
-bare_pipe_exports (js_env_t *env, js_value_t *exports) {
+bare_pipe_exports(js_env_t *env, js_value_t *exports) {
   int err;
 
 #define V(name, fn) \

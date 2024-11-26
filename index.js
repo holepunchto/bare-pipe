@@ -49,8 +49,6 @@ module.exports = exports = class Pipe extends Duplex {
     } else if (typeof path === 'string') {
       this.connect(path)
     }
-
-    Pipe._pipes.add(this)
   }
 
   get connecting() {
@@ -202,7 +200,6 @@ module.exports = exports = class Pipe extends Duplex {
     if (this._state & constants.state.CLOSING) return
     this._state |= constants.state.CLOSING
     binding.close(this._handle)
-    Pipe._pipes.delete(this)
   }
 
   _destroy(err, cb) {
@@ -210,7 +207,6 @@ module.exports = exports = class Pipe extends Duplex {
     this._state |= constants.state.CLOSING
     this._pendingDestroy = cb
     binding.close(this._handle)
-    Pipe._pipes.delete(this)
   }
 
   _continueOpen(err) {
@@ -309,8 +305,6 @@ module.exports = exports = class Pipe extends Duplex {
 
     this._continueOpen()
   }
-
-  static _pipes = new Set()
 }
 
 exports.Pipe = exports
@@ -343,8 +337,6 @@ exports.Server = class PipeServer extends EventEmitter {
     this._handle = null
 
     if (onconnection) this.on('connection', onconnection)
-
-    PipeServer._servers.add(this)
   }
 
   get listening() {
@@ -440,7 +432,6 @@ exports.Server = class PipeServer extends EventEmitter {
     if (this._state & constants.state.CLOSING && this._connections.size === 0) {
       if (this._handle !== null) binding.close(this._handle)
       else queueMicrotask(() => this.emit('close'))
-      PipeServer._servers.delete(this)
     }
   }
 
@@ -491,8 +482,6 @@ exports.Server = class PipeServer extends EventEmitter {
     if (err) this.emit('error', err)
     else this.emit('close')
   }
-
-  static _servers = new Set()
 }
 
 exports.constants = constants
@@ -515,16 +504,6 @@ exports.createConnection = function createConnection(path, opts, onconnect) {
 exports.createServer = function createServer(opts, onconnection) {
   return new exports.Server(opts, onconnection)
 }
-
-Bare.on('exit', () => {
-  for (const pipe of Pipe._pipes) {
-    pipe.destroy()
-  }
-
-  for (const server of Server._servers) {
-    server.close()
-  }
-})
 
 const empty = Buffer.alloc(0)
 
