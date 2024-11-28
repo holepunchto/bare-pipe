@@ -274,6 +274,8 @@ bare_pipe__on_close(uv_handle_t *handle) {
 
   js_env_t *env = pipe->env;
 
+  js_deferred_teardown_t *teardown = pipe->teardown;
+
   js_handle_scope_t *scope;
   err = js_open_handle_scope(env, &scope);
   assert(err == 0);
@@ -284,9 +286,6 @@ bare_pipe__on_close(uv_handle_t *handle) {
 
   js_value_t *on_close;
   err = js_get_reference_value(env, pipe->on_close, &on_close);
-  assert(err == 0);
-
-  err = js_finish_deferred_teardown_callback(pipe->teardown);
   assert(err == 0);
 
   err = js_delete_reference(env, pipe->on_connection);
@@ -313,6 +312,9 @@ bare_pipe__on_close(uv_handle_t *handle) {
   if (!pipe->exiting) js_call_function(env, ctx, on_close, 0, NULL, NULL);
 
   err = js_close_handle_scope(env, scope);
+  assert(err == 0);
+
+  err = js_finish_deferred_teardown_callback(teardown);
   assert(err == 0);
 }
 
