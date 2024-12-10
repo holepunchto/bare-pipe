@@ -26,8 +26,10 @@ typedef struct {
   js_ref_t *on_read;
   js_ref_t *on_close;
 
-  js_deferred_teardown_t *teardown;
+  bool closing;
   bool exiting;
+
+  js_deferred_teardown_t *teardown;
 } bare_pipe_t;
 
 enum {
@@ -42,6 +44,8 @@ bare_pipe__on_connection(uv_stream_t *server, int status) {
   int err;
 
   bare_pipe_t *pipe = (bare_pipe_t *) server;
+
+  if (pipe->exiting) return;
 
   js_env_t *env = pipe->env;
 
@@ -87,6 +91,8 @@ bare_pipe__on_connect(uv_connect_t *req, int status) {
 
   bare_pipe_t *pipe = (bare_pipe_t *) req->data;
 
+  if (pipe->exiting) return;
+
   js_env_t *env = pipe->env;
 
   js_handle_scope_t *scope;
@@ -131,6 +137,8 @@ bare_pipe__on_write(uv_write_t *req, int status) {
 
   bare_pipe_t *pipe = (bare_pipe_t *) req->data;
 
+  if (pipe->exiting) return;
+
   js_env_t *env = pipe->env;
 
   js_handle_scope_t *scope;
@@ -174,6 +182,8 @@ bare_pipe__on_shutdown(uv_shutdown_t *req, int status) {
   int err;
 
   bare_pipe_t *pipe = (bare_pipe_t *) req->data;
+
+  if (pipe->exiting) return;
 
   js_env_t *env = pipe->env;
 
@@ -221,6 +231,8 @@ bare_pipe__on_read(uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf) {
   int err;
 
   bare_pipe_t *pipe = (bare_pipe_t *) stream;
+
+  if (pipe->exiting) return;
 
   js_env_t *env = pipe->env;
 
@@ -324,6 +336,8 @@ bare_pipe__on_teardown(js_deferred_teardown_t *handle, void *data) {
 
   pipe->exiting = true;
 
+  if (pipe->closing) return;
+
   uv_close((uv_handle_t *) &pipe->handle, bare_pipe__on_close);
 }
 
@@ -347,7 +361,8 @@ bare_pipe_init(js_env_t *env, js_callback_info_t *info) {
   assert(argc == 8);
 
   uv_loop_t *loop;
-  js_get_env_loop(env, &loop);
+  err = js_get_env_loop(env, &loop);
+  assert(err == 0);
 
   js_value_t *handle;
 
@@ -363,6 +378,7 @@ bare_pipe_init(js_env_t *env, js_callback_info_t *info) {
   }
 
   pipe->env = env;
+  pipe->closing = false;
   pipe->exiting = false;
 
   err = js_get_typedarray_info(env, argv[0], NULL, (void **) &pipe->read.base, (size_t *) &pipe->read.len, NULL, NULL);
