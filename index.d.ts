@@ -14,7 +14,7 @@ interface PipeConnectOptions {
   path?: string
 }
 
-declare interface Pipe<M extends PipeEvents = PipeEvents> extends Duplex<M> {
+interface Pipe<M extends PipeEvents = PipeEvents> extends Duplex<M> {
   readonly connecting: boolean
   readonly pending: boolean
   readonly readyState: 'open' | 'readOnly' | 'writeOnly'
@@ -39,7 +39,7 @@ declare interface Pipe<M extends PipeEvents = PipeEvents> extends Duplex<M> {
 declare class Pipe<M extends PipeEvents = PipeEvents> extends Duplex<M> {
   constructor(path: string | number, opts?: PipeOptions)
 
-  constructor(opts?: { readBufferSize?: number; allowHalfOpen?: boolean })
+  constructor(opts?: PipeOptions)
 }
 
 interface ServerEvents extends EventMap {
@@ -54,7 +54,12 @@ interface ServerOptions {
   allowHalfOpen?: boolean
 }
 
-declare interface Server<M extends ServerEvents = ServerEvents>
+interface ServerListenOptions {
+  path?: string
+  backlog?: number
+}
+
+interface Server<M extends ServerEvents = ServerEvents>
   extends EventEmitter<M> {
   readonly listening: boolean
 
@@ -63,7 +68,7 @@ declare interface Server<M extends ServerEvents = ServerEvents>
   listen(
     path: string,
     backlog?: number,
-    opts?: { path?: string; backlog?: number },
+    opts?: ServerListenOptions,
     onlistening?: () => void
   ): this
 
@@ -71,7 +76,7 @@ declare interface Server<M extends ServerEvents = ServerEvents>
 
   listen(path: string, onlistening: () => void): this
 
-  listen(opts: { path?: string; backlog?: number }): this
+  listen(opts: ServerListenOptions): this
 
   close(onclose?: () => void): void
 
