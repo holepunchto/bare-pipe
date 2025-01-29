@@ -42,24 +42,24 @@ declare class Pipe<M extends PipeEvents = PipeEvents> extends Duplex<M> {
   constructor(opts?: PipeOptions)
 }
 
-interface ServerEvents extends EventMap {
+interface PipeServerEvents extends EventMap {
   close: []
   connection: [pipe: Pipe]
   err: [err: Error]
   listening: []
 }
 
-interface ServerOptions {
+interface PipeServerOptions {
   readBufferSize?: number
   allowHalfOpen?: boolean
 }
 
-interface ServerListenOptions {
+interface PipeServerListenOptions {
   path?: string
   backlog?: number
 }
 
-interface Server<M extends ServerEvents = ServerEvents>
+interface PipeServer<M extends PipeServerEvents = PipeServerEvents>
   extends EventEmitter<M> {
   readonly listening: boolean
 
@@ -68,7 +68,7 @@ interface Server<M extends ServerEvents = ServerEvents>
   listen(
     path: string,
     backlog?: number,
-    opts?: ServerListenOptions,
+    opts?: PipeServerListenOptions,
     onlistening?: () => void
   ): this
 
@@ -76,7 +76,7 @@ interface Server<M extends ServerEvents = ServerEvents>
 
   listen(path: string, onlistening: () => void): this
 
-  listen(opts: ServerListenOptions): this
+  listen(opts: PipeServerListenOptions): this
 
   close(onclose?: () => void): void
 
@@ -85,12 +85,45 @@ interface Server<M extends ServerEvents = ServerEvents>
   unref(): void
 }
 
-declare class Server<
-  M extends ServerEvents = ServerEvents
+declare class PipeServer<
+  M extends PipeServerEvents = PipeServerEvents
 > extends EventEmitter<M> {
-  constructor(opts?: ServerOptions, onconnection?: () => void)
+  constructor(opts?: PipeServerOptions, onconnection?: () => void)
 
   constructor(onconnection: () => void)
+}
+
+interface CreateConnectionOptions extends PipeOptions, PipeConnectOptions {}
+
+declare function createConnection(
+  path: string,
+  opts?: CreateConnectionOptions,
+  onconnect?: () => void
+): Pipe
+
+declare function createConnection(path: string, onconnect: () => void): Pipe
+
+declare function createConnection(
+  opts: CreateConnectionOptions,
+  onconnect?: () => void
+): Pipe
+
+declare function createServer(
+  opts?: PipeServerOptions,
+  onconnection?: () => void
+): PipeServer
+
+declare function pipe(): [read: number, write: number]
+
+declare const constants: {
+  CONNECTING: number
+  CONNECTED: number
+  BINDING: number
+  BOUND: number
+  READING: number
+  CLOSING: number
+  READABLE: number
+  WRITABLE: number
 }
 
 declare class PipeError extends Error {
@@ -100,49 +133,25 @@ declare class PipeError extends Error {
 }
 
 declare namespace Pipe {
-  export interface CreateConnectionOptions
-    extends PipeOptions,
-      PipeConnectOptions {}
-
-  export function createConnection(
-    path: string,
-    opts?: CreateConnectionOptions,
-    onconnect?: () => void
-  ): Pipe
-
-  export function createConnection(path: string, onconnect: () => void): Pipe
-
-  export function createConnection(
-    opts: CreateConnectionOptions,
-    onconnect?: () => void
-  ): Pipe
-
-  export function createServer(
-    opts?: ServerOptions,
-    onconnection?: () => void
-  ): Server
-
-  export function pipe(): [read: number, write: number]
-
-  export const constants: {
-    CONNECTING: number
-    CONNECTED: number
-    BINDING: number
-    BOUND: number
-    READING: number
-    CLOSING: number
-    READABLE: number
-    WRITABLE: number
-  }
-
   export {
     Pipe,
+    pipe,
+    PipeServer as Server,
+    constants,
+    PipeError as errors,
+    createConnection,
+    createServer
+  }
+
+  export type {
     PipeEvents,
     PipeOptions,
     PipeConnectOptions,
-    PipeError as errors,
-    ServerEvents,
-    ServerOptions
+    PipeServerEvents,
+    PipeServerOptions,
+    PipeServerListenOptions,
+    PipeServer,
+    CreateConnectionOptions
   }
 }
 
