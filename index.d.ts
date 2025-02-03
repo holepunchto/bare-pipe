@@ -1,5 +1,7 @@
 import EventEmitter, { EventMap } from 'bare-events'
 import { Duplex, DuplexEvents } from 'bare-stream'
+import PipeError from './lib/errors'
+import constants from './lib/constants'
 
 interface PipeEvents extends DuplexEvents {
   connect: []
@@ -42,24 +44,24 @@ declare class Pipe<M extends PipeEvents = PipeEvents> extends Duplex<M> {
   constructor(opts?: PipeOptions)
 }
 
-interface ServerEvents extends EventMap {
+interface PipeServerEvents extends EventMap {
   close: []
   connection: [pipe: Pipe]
   err: [err: Error]
   listening: []
 }
 
-interface ServerOptions {
+interface PipeServerOptions {
   readBufferSize?: number
   allowHalfOpen?: boolean
 }
 
-interface ServerListenOptions {
+interface PipeServerListenOptions {
   path?: string
   backlog?: number
 }
 
-interface Server<M extends ServerEvents = ServerEvents>
+interface PipeServer<M extends PipeServerEvents = PipeServerEvents>
   extends EventEmitter<M> {
   readonly listening: boolean
 
@@ -68,7 +70,7 @@ interface Server<M extends ServerEvents = ServerEvents>
   listen(
     path: string,
     backlog?: number,
-    opts?: ServerListenOptions,
+    opts?: PipeServerListenOptions,
     onlistening?: () => void
   ): this
 
@@ -76,7 +78,7 @@ interface Server<M extends ServerEvents = ServerEvents>
 
   listen(path: string, onlistening: () => void): this
 
-  listen(opts: ServerListenOptions): this
+  listen(opts: PipeServerListenOptions): this
 
   close(onclose?: () => void): void
 
@@ -85,18 +87,12 @@ interface Server<M extends ServerEvents = ServerEvents>
   unref(): void
 }
 
-declare class Server<
-  M extends ServerEvents = ServerEvents
+declare class PipeServer<
+  M extends PipeServerEvents = PipeServerEvents
 > extends EventEmitter<M> {
-  constructor(opts?: ServerOptions, onconnection?: () => void)
+  constructor(opts?: PipeServerOptions, onconnection?: () => void)
 
   constructor(onconnection: () => void)
-}
-
-declare class PipeError extends Error {
-  static PIPE_ALREADY_CONNECTED(msg: string): PipeError
-  static SERVER_ALREADY_LISTENING(msg: string): PipeError
-  static SERVER_IS_CLOSED(msg: string): PipeError
 }
 
 declare namespace Pipe {
@@ -118,31 +114,25 @@ declare namespace Pipe {
   ): Pipe
 
   export function createServer(
-    opts?: ServerOptions,
+    opts?: PipeServerOptions,
     onconnection?: () => void
-  ): Server
+  ): PipeServer
 
   export function pipe(): [read: number, write: number]
 
-  export const constants: {
-    CONNECTING: number
-    CONNECTED: number
-    BINDING: number
-    BOUND: number
-    READING: number
-    CLOSING: number
-    READABLE: number
-    WRITABLE: number
-  }
-
   export {
+    type PipeEvents,
+    type PipeOptions,
     Pipe,
-    PipeEvents,
-    PipeOptions,
-    PipeConnectOptions,
+    type PipeConnectOptions,
+    type PipeServerEvents,
+    type PipeServerOptions,
+    type PipeServerListenOptions,
+    type PipeServer,
+    PipeServer as Server,
+    type PipeError,
     PipeError as errors,
-    ServerEvents,
-    ServerOptions
+    constants
   }
 }
 
