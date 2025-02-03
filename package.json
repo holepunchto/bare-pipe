@@ -3,13 +3,19 @@
   "version": "4.0.3",
   "description": "Native I/O pipes for JavaScript",
   "exports": {
+    "./package": "./package.json",
     ".": {
       "types": "./index.d.ts",
       "default": "./index.js"
     },
-    "./package": "./package.json",
-    "./constants": "./lib/constants.js",
-    "./errors": "./lib/errors.js"
+    "./constants": {
+      "types": "./lib/constants.d.ts",
+      "default": "./lib/constants.js"
+    },
+    "./errors": {
+      "types": "./lib/errors.d.ts",
+      "default": "./lib/errors.js"
+    }
   },
   "files": [
     "index.js",

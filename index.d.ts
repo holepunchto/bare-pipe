@@ -1,5 +1,7 @@
 import EventEmitter, { EventMap } from 'bare-events'
 import { Duplex, DuplexEvents } from 'bare-stream'
+import PipeError from './lib/errors'
+import constants from './lib/constants'
 
 interface PipeEvents extends DuplexEvents {
   connect: []
@@ -93,65 +95,44 @@ declare class PipeServer<
   constructor(onconnection: () => void)
 }
 
-interface CreateConnectionOptions extends PipeOptions, PipeConnectOptions {}
-
-declare function createConnection(
-  path: string,
-  opts?: CreateConnectionOptions,
-  onconnect?: () => void
-): Pipe
-
-declare function createConnection(path: string, onconnect: () => void): Pipe
-
-declare function createConnection(
-  opts: CreateConnectionOptions,
-  onconnect?: () => void
-): Pipe
-
-declare function createServer(
-  opts?: PipeServerOptions,
-  onconnection?: () => void
-): PipeServer
-
-declare function pipe(): [read: number, write: number]
-
-declare const constants: {
-  CONNECTING: number
-  CONNECTED: number
-  BINDING: number
-  BOUND: number
-  READING: number
-  CLOSING: number
-  READABLE: number
-  WRITABLE: number
-}
-
-declare class PipeError extends Error {
-  static PIPE_ALREADY_CONNECTED(msg: string): PipeError
-  static SERVER_ALREADY_LISTENING(msg: string): PipeError
-  static SERVER_IS_CLOSED(msg: string): PipeError
-}
-
 declare namespace Pipe {
-  export {
-    Pipe,
-    pipe,
-    PipeServer as Server,
-    constants,
-    PipeError as errors,
-    createConnection,
-    createServer
-  }
+  export interface CreateConnectionOptions
+    extends PipeOptions,
+      PipeConnectOptions {}
 
-  export type {
-    PipeEvents,
-    PipeOptions,
-    PipeConnectOptions,
-    PipeServerEvents,
-    PipeServerOptions,
-    PipeServerListenOptions,
-    PipeServer,
-    CreateConnectionOptions
+  export function createConnection(
+    path: string,
+    opts?: CreateConnectionOptions,
+    onconnect?: () => void
+  ): Pipe
+
+  export function createConnection(path: string, onconnect: () => void): Pipe
+
+  export function createConnection(
+    opts: CreateConnectionOptions,
+    onconnect?: () => void
+  ): Pipe
+
+  export function createServer(
+    opts?: PipeServerOptions,
+    onconnection?: () => void
+  ): PipeServer
+
+  export function pipe(): [read: number, write: number]
+
+  export {
+    type PipeEvents,
+    type PipeOptions,
+    Pipe,
+    type PipeConnectOptions,
+    type PipeServerEvents,
+    type PipeServerOptions,
+    type PipeServerListenOptions,
+    type PipeServer,
+    PipeServer as Server,
+    type PipeError,
+    PipeError as errors,
+    constants
   }
 }
 
