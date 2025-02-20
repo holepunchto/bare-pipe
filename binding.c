@@ -766,7 +766,7 @@ bare_pipe_pipe(js_env_t *env, js_callback_info_t *info) {
   int err;
 
   uv_file fds[2];
-  err = uv_pipe(fds, 0, 0);
+  err = uv_pipe(fds, UV_NONBLOCK_PIPE, UV_NONBLOCK_PIPE);
   assert(err == 0);
 
   js_value_t *result;
