@@ -1,6 +1,6 @@
 {
   "name": "bare-pipe",
-  "version": "4.0.3",
+  "version": "4.0.4",
   "description": "Native I/O pipes for JavaScript",
   "exports": {
     "./package": "./package.json",
