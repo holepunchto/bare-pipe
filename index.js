@@ -9,15 +9,18 @@ const defaultReadBufferSize = 65536
 
 module.exports = exports = class Pipe extends Duplex {
   constructor(path, opts = {}) {
-    super({ eagerOpen: true })
-
     if (typeof path === 'object' && path !== null) {
       opts = path
       path = null
     }
 
-    const { readBufferSize = defaultReadBufferSize, allowHalfOpen = true } =
-      opts
+    const {
+      allowHalfOpen = true,
+      eagerOpen = true,
+      readBufferSize = defaultReadBufferSize
+    } = opts
+
+    super({ eagerOpen })
 
     this._state = 0
 
