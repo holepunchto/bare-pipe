@@ -8,8 +8,9 @@ interface PipeEvents extends DuplexEvents {
 }
 
 interface PipeOptions {
-  readBufferSize?: number
   allowHalfOpen?: boolean
+  eagerOpen?: boolean
+  readBufferSize?: number
 }
 
 interface PipeConnectOptions {
