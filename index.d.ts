@@ -23,20 +23,15 @@ interface Pipe<M extends PipeEvents = PipeEvents> extends Duplex<M> {
   readonly readyState: 'open' | 'readOnly' | 'writeOnly'
 
   open(fd: number, opts?: { fd?: number }, onconnect?: () => void): this
-
   open(fd: number, onconnect: () => void): this
-
   open(opts: { fd: number }, onconnect?: () => void): this
 
   connect(path: string, opts?: PipeConnectOptions, onconnect?: () => void): this
-
   connect(path: string, onconnect: () => void): this
-
   connect(opts: PipeConnectOptions, onconnect?: () => void): this
 
-  ref(): void
-
-  unref(): void
+  ref(): this
+  unref(): this
 }
 
 declare class Pipe<M extends PipeEvents = PipeEvents> extends Duplex<M> {
@@ -74,18 +69,14 @@ interface PipeServer<M extends PipeServerEvents = PipeServerEvents>
     opts?: PipeServerListenOptions,
     onlistening?: () => void
   ): this
-
   listen(path: string, backlog: number, onlistening: () => void): this
-
   listen(path: string, onlistening: () => void): this
-
   listen(opts: PipeServerListenOptions): this
 
   close(onclose?: () => void): void
 
-  ref(): void
-
-  unref(): void
+  ref(): this
+  unref(): this
 }
 
 declare class PipeServer<
