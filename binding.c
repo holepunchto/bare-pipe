@@ -373,7 +373,9 @@ bare_pipe_init(js_env_t *env, js_callback_info_t *info) {
   err = uv_pipe_init(loop, &pipe->handle, 0);
 
   if (err < 0) {
-    js_throw_error(env, uv_err_name(err), uv_strerror(err));
+    err = js_throw_error(env, uv_err_name(err), uv_strerror(err));
+    assert(err == 0);
+
     return NULL;
   }
 
@@ -438,8 +440,8 @@ bare_pipe_connect(js_env_t *env, js_callback_info_t *info) {
   err = uv_pipe_connect2(req, &pipe->handle, (char *) path, strlen((const char *) path), UV_PIPE_NO_TRUNCATE, bare_pipe__on_connect);
 
   if (err < 0) {
-    js_throw_error(env, uv_err_name(err), uv_strerror(err));
-    return NULL;
+    err = js_throw_error(env, uv_err_name(err), uv_strerror(err));
+    assert(err == 0);
   }
 
   return NULL;
@@ -468,7 +470,9 @@ bare_pipe_open(js_env_t *env, js_callback_info_t *info) {
   err = uv_pipe_open(&pipe->handle, fd);
 
   if (err < 0) {
-    js_throw_error(env, uv_err_name(err), uv_strerror(err));
+    err = js_throw_error(env, uv_err_name(err), uv_strerror(err));
+    assert(err == 0);
+
     return NULL;
   }
 
@@ -516,15 +520,17 @@ bare_pipe_bind(js_env_t *env, js_callback_info_t *info) {
   err = uv_pipe_bind2(&pipe->handle, (char *) name, strlen((const char *) name), UV_PIPE_NO_TRUNCATE);
 
   if (err < 0) {
-    js_throw_error(env, uv_err_name(err), uv_strerror(err));
+    err = js_throw_error(env, uv_err_name(err), uv_strerror(err));
+    assert(err == 0);
+
     return NULL;
   }
 
   err = uv_listen((uv_stream_t *) &pipe->handle, backlog, bare_pipe__on_connection);
 
   if (err < 0) {
-    js_throw_error(env, uv_err_name(err), uv_strerror(err));
-    return NULL;
+    err = js_throw_error(env, uv_err_name(err), uv_strerror(err));
+    assert(err == 0);
   }
 
   return NULL;
@@ -553,8 +559,8 @@ bare_pipe_accept(js_env_t *env, js_callback_info_t *info) {
   err = uv_accept((uv_stream_t *) &server->handle, (uv_stream_t *) &client->handle);
 
   if (err < 0) {
-    js_throw_error(env, uv_err_name(err), uv_strerror(err));
-    return NULL;
+    err = js_throw_error(env, uv_err_name(err), uv_strerror(err));
+    assert(err == 0);
   }
 
   return NULL;
@@ -585,11 +591,8 @@ bare_pipe_writev(js_env_t *env, js_callback_info_t *info) {
   uv_buf_t *bufs = malloc(sizeof(uv_buf_t) * bufs_len);
 
   js_value_t **elements = malloc(bufs_len * sizeof(js_value_t *));
-
-  uint32_t fetched;
-  err = js_get_array_elements(env, arr, elements, bufs_len, 0, &fetched);
+  err = js_get_array_elements(env, arr, elements, bufs_len, 0, NULL);
   assert(err == 0);
-  assert(fetched == bufs_len);
 
   for (uint32_t i = 0; i < bufs_len; i++) {
     js_value_t *item = elements[i];
@@ -609,8 +612,8 @@ bare_pipe_writev(js_env_t *env, js_callback_info_t *info) {
   free(elements);
 
   if (err < 0) {
-    js_throw_error(env, uv_err_name(err), uv_strerror(err));
-    return NULL;
+    err = js_throw_error(env, uv_err_name(err), uv_strerror(err));
+    assert(err == 0);
   }
 
   return NULL;
@@ -639,8 +642,8 @@ bare_pipe_end(js_env_t *env, js_callback_info_t *info) {
   err = uv_shutdown(req, (uv_stream_t *) &pipe->handle, bare_pipe__on_shutdown);
 
   if (err < 0) {
-    js_throw_error(env, uv_err_name(err), uv_strerror(err));
-    return NULL;
+    err = js_throw_error(env, uv_err_name(err), uv_strerror(err));
+    assert(err == 0);
   }
 
   return NULL;
@@ -667,8 +670,8 @@ bare_pipe_resume(js_env_t *env, js_callback_info_t *info) {
   err = uv_read_start((uv_stream_t *) &pipe->handle, bare_pipe__on_alloc, bare_pipe__on_read);
 
   if (err < 0) {
-    js_throw_error(env, uv_err_name(err), uv_strerror(err));
-    return NULL;
+    err = js_throw_error(env, uv_err_name(err), uv_strerror(err));
+    assert(err == 0);
   }
 
   return NULL;
@@ -695,8 +698,8 @@ bare_pipe_pause(js_env_t *env, js_callback_info_t *info) {
   err = uv_read_stop((uv_stream_t *) &pipe->handle);
 
   if (err < 0) {
-    js_throw_error(env, uv_err_name(err), uv_strerror(err));
-    return NULL;
+    err = js_throw_error(env, uv_err_name(err), uv_strerror(err));
+    assert(err == 0);
   }
 
   return NULL;
