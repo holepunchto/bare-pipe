@@ -57,8 +57,7 @@ interface PipeServerListenOptions {
   backlog?: number
 }
 
-interface PipeServer<M extends PipeServerEvents = PipeServerEvents>
-  extends EventEmitter<M> {
+interface PipeServer<M extends PipeServerEvents = PipeServerEvents> extends EventEmitter<M> {
   readonly listening: boolean
 
   address(): string | null
@@ -79,18 +78,14 @@ interface PipeServer<M extends PipeServerEvents = PipeServerEvents>
   unref(): this
 }
 
-declare class PipeServer<
-  M extends PipeServerEvents = PipeServerEvents
-> extends EventEmitter<M> {
+declare class PipeServer<M extends PipeServerEvents = PipeServerEvents> extends EventEmitter<M> {
   constructor(opts?: PipeServerOptions, onconnection?: () => void)
 
   constructor(onconnection: () => void)
 }
 
 declare namespace Pipe {
-  export interface CreateConnectionOptions
-    extends PipeOptions,
-      PipeConnectOptions {}
+  export interface CreateConnectionOptions extends PipeOptions, PipeConnectOptions {}
 
   export function createConnection(
     path: string,
@@ -100,15 +95,9 @@ declare namespace Pipe {
 
   export function createConnection(path: string, onconnect: () => void): Pipe
 
-  export function createConnection(
-    opts: CreateConnectionOptions,
-    onconnect?: () => void
-  ): Pipe
+  export function createConnection(opts: CreateConnectionOptions, onconnect?: () => void): Pipe
 
-  export function createServer(
-    opts?: PipeServerOptions,
-    onconnection?: () => void
-  ): PipeServer
+  export function createServer(opts?: PipeServerOptions, onconnection?: () => void): PipeServer
 
   export function pipe(): [read: number, write: number]
 

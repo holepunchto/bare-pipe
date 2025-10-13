@@ -13,11 +13,7 @@ module.exports = exports = class Pipe extends Duplex {
       path = null
     }
 
-    const {
-      allowHalfOpen = true,
-      eagerOpen = true,
-      readBufferSize = defaultReadBufferSize
-    } = opts
+    const { allowHalfOpen = true, eagerOpen = true, readBufferSize = defaultReadBufferSize } = opts
 
     super({ eagerOpen })
 
@@ -62,10 +58,7 @@ module.exports = exports = class Pipe extends Duplex {
   }
 
   get readyState() {
-    if (
-      this._state & constants.state.READABLE &&
-      this._state & constants.state.WRITABLE
-    ) {
+    if (this._state & constants.state.READABLE && this._state & constants.state.WRITABLE) {
       return 'open'
     }
 
@@ -123,10 +116,7 @@ module.exports = exports = class Pipe extends Duplex {
   }
 
   connect(path, opts = {}, onconnect) {
-    if (
-      this._state & constants.state.CONNECTING ||
-      this._state & constants.state.CONNECTED
-    ) {
+    if (this._state & constants.state.CONNECTING || this._state & constants.state.CONNECTED) {
       throw errors.PIPE_ALREADY_CONNECTED('Pipe is already connected')
     }
 
@@ -189,10 +179,7 @@ module.exports = exports = class Pipe extends Duplex {
   }
 
   _final(cb) {
-    if (
-      this._state & constants.state.READABLE &&
-      this._state & constants.state.WRITABLE
-    ) {
+    if (this._state & constants.state.READABLE && this._state & constants.state.WRITABLE) {
       this._pendingFinal = cb
       binding.end(this._handle)
     } else {
@@ -248,10 +235,7 @@ module.exports = exports = class Pipe extends Duplex {
       return
     }
 
-    this._state |=
-      constants.state.CONNECTED |
-      constants.state.READABLE |
-      constants.state.WRITABLE
+    this._state |= constants.state.CONNECTED | constants.state.READABLE | constants.state.WRITABLE
     this._state &= ~constants.state.CONNECTING
     this._continueOpen()
 
@@ -326,8 +310,7 @@ exports.Server = class PipeServer extends EventEmitter {
 
     super()
 
-    const { readBufferSize = defaultReadBufferSize, allowHalfOpen = true } =
-      opts
+    const { readBufferSize = defaultReadBufferSize, allowHalfOpen = true } = opts
 
     this._state = 0
 
@@ -356,10 +339,7 @@ exports.Server = class PipeServer extends EventEmitter {
   }
 
   listen(path, backlog = 511, opts = {}, onlistening) {
-    if (
-      this._state & constants.state.BINDING ||
-      this._state & constants.state.BOUND
-    ) {
+    if (this._state & constants.state.BINDING || this._state & constants.state.BOUND) {
       throw errors.SERVER_ALREADY_LISTENING('Server is already listening')
     }
 
@@ -458,10 +438,7 @@ exports.Server = class PipeServer extends EventEmitter {
       binding.accept(this._handle, pipe._handle)
 
       pipe._path = this._path
-      pipe._state |=
-        constants.state.CONNECTED |
-        constants.state.READABLE |
-        constants.state.WRITABLE
+      pipe._state |= constants.state.CONNECTED | constants.state.READABLE | constants.state.WRITABLE
 
       this._connections.add(pipe)
 
