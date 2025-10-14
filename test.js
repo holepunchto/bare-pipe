@@ -118,8 +118,6 @@ test('pipe', async (t) => {
 
 function name() {
   const name =
-    'bare-pipe-' +
-    Math.random().toString(16).slice(2) +
-    Math.random().toString(16).slice(2)
+    'bare-pipe-' + Math.random().toString(16).slice(2) + Math.random().toString(16).slice(2)
   return isWindows ? '\\\\.\\pipe\\' + name : '/tmp/' + name + '.sock'
 }
