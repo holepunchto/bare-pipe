@@ -36,7 +36,6 @@ interface Pipe<M extends PipeEvents = PipeEvents> extends Duplex<M> {
 
 declare class Pipe<M extends PipeEvents = PipeEvents> extends Duplex<M> {
   constructor(path: string | number, opts?: PipeOptions)
-
   constructor(opts?: PipeOptions)
 }
 
@@ -48,8 +47,9 @@ interface PipeServerEvents extends EventMap {
 }
 
 interface PipeServerOptions {
-  readBufferSize?: number
   allowHalfOpen?: boolean
+  pauseOnConnect?: boolean
+  readBufferSize?: number
 }
 
 interface PipeServerListenOptions {
@@ -72,7 +72,7 @@ interface PipeServer<M extends PipeServerEvents = PipeServerEvents> extends Even
   listen(path: string, onlistening: () => void): this
   listen(opts: PipeServerListenOptions): this
 
-  close(onclose?: () => void): void
+  close(onclose?: (err?: Error) => void): this
 
   ref(): this
   unref(): this
@@ -80,7 +80,6 @@ interface PipeServer<M extends PipeServerEvents = PipeServerEvents> extends Even
 
 declare class PipeServer<M extends PipeServerEvents = PipeServerEvents> extends EventEmitter<M> {
   constructor(opts?: PipeServerOptions, onconnection?: () => void)
-
   constructor(onconnection: () => void)
 }
 

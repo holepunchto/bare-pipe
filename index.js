@@ -5,6 +5,7 @@ const constants = require('./lib/constants')
 const errors = require('./lib/errors')
 
 const defaultReadBufferSize = 65536
+const empty = Buffer.alloc(0)
 
 module.exports = exports = class Pipe extends Duplex {
   constructor(path, opts = {}) {
@@ -13,7 +14,7 @@ module.exports = exports = class Pipe extends Duplex {
       path = null
     }
 
-    const { allowHalfOpen = true, eagerOpen = true, readBufferSize = defaultReadBufferSize } = opts
+    const { readBufferSize = defaultReadBufferSize, allowHalfOpen = true, eagerOpen = true } = opts
 
     super({ eagerOpen })
 
@@ -150,28 +151,33 @@ module.exports = exports = class Pipe extends Duplex {
 
   ref() {
     binding.ref(this._handle)
+
     return this
   }
 
   unref() {
     binding.unref(this._handle)
+
     return this
   }
 
   _open(cb) {
     if (this._state & constants.state.CONNECTED) return cb(null)
+
     this._pendingOpen = cb
   }
 
   _read() {
     if ((this._state & constants.state.READING) === 0) {
       this._state |= constants.state.READING
+
       binding.resume(this._handle)
     }
   }
 
   _writev(batch, cb) {
     this._pendingWrite = [cb, batch]
+
     binding.writev(
       this._handle,
       batch.map(({ chunk }) => chunk)
@@ -181,6 +187,7 @@ module.exports = exports = class Pipe extends Duplex {
   _final(cb) {
     if (this._state & constants.state.READABLE && this._state & constants.state.WRITABLE) {
       this._pendingFinal = cb
+
       binding.end(this._handle)
     } else {
       cb(null)
@@ -190,13 +197,16 @@ module.exports = exports = class Pipe extends Duplex {
   _predestroy() {
     if (this._state & constants.state.CLOSING) return
     this._state |= constants.state.CLOSING
+
     binding.close(this._handle)
   }
 
   _destroy(err, cb) {
     if (this._state & constants.state.CLOSING) return cb(err)
     this._state |= constants.state.CLOSING
+
     this._pendingDestroy = cb
+
     binding.close(this._handle)
   }
 
@@ -259,6 +269,7 @@ module.exports = exports = class Pipe extends Duplex {
 
     if (this.push(copy) === false && this.destroying === false) {
       this._state &= ~constants.state.READING
+
       binding.pause(this._handle)
     }
   }
@@ -310,12 +321,17 @@ exports.Server = class PipeServer extends EventEmitter {
 
     super()
 
-    const { readBufferSize = defaultReadBufferSize, allowHalfOpen = true } = opts
+    const {
+      readBufferSize = defaultReadBufferSize,
+      allowHalfOpen = true,
+      pauseOnConnect = false
+    } = opts
 
     this._state = 0
 
     this._readBufferSize = readBufferSize
     this._allowHalfOpen = allowHalfOpen
+    this._pauseOnConnect = pauseOnConnect
 
     this._path = null
     this._connections = new Set()
@@ -397,20 +413,28 @@ exports.Server = class PipeServer extends EventEmitter {
 
   close(onclose) {
     if (onclose) this.once('close', onclose)
+
     if (this._state & constants.state.CLOSING) return
     this._state |= constants.state.CLOSING
+
     this._closeMaybe()
+
+    return this
   }
 
   ref() {
     this._state &= ~constants.state.UNREFED
+
     if (this._handle !== null) binding.ref(this._handle)
+
     return this
   }
 
   unref() {
     this._state |= constants.state.UNREFED
+
     if (this._handle !== null) binding.unref(this._handle)
+
     return this
   }
 
@@ -431,7 +455,8 @@ exports.Server = class PipeServer extends EventEmitter {
 
     const pipe = new exports.Pipe({
       readBufferSize: this._readBufferSize,
-      allowHalfOpen: this._allowHalfOpen
+      allowHalfOpen: this._allowHalfOpen,
+      eagerOpen: !this._pauseOnConnect
     })
 
     try {
@@ -487,7 +512,5 @@ exports.createConnection = function createConnection(path, opts, onconnect) {
 exports.createServer = function createServer(opts, onconnection) {
   return new exports.Server(opts, onconnection)
 }
-
-const empty = Buffer.alloc(0)
 
 function noop() {}
