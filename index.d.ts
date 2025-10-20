@@ -20,7 +20,7 @@ interface PipeConnectOptions {
 interface Pipe<M extends PipeEvents = PipeEvents> extends Duplex<M> {
   readonly connecting: boolean
   readonly pending: boolean
-  readonly readyState: 'open' | 'readOnly' | 'writeOnly'
+  readonly readyState: 'open' | 'readOnly' | 'writeOnly' | 'opening'
 
   open(fd: number, opts?: { fd?: number }, onconnect?: () => void): this
   open(fd: number, onconnect: () => void): this
