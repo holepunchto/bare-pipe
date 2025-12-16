@@ -402,12 +402,9 @@ exports.Server = class PipeServer extends EventEmitter {
 
       queueMicrotask(() => this.emit('listening'))
     } catch (err) {
-      const handle = this._handle
-
-      this._handle = null
       this._error = err
 
-      binding.close(handle)
+      binding.close(this._handle)
     }
 
     return this
@@ -487,6 +484,7 @@ exports.Server = class PipeServer extends EventEmitter {
 
     this._state &= ~constants.state.BINDING
     this._error = null
+    this._handle = null
 
     if (err) this.emit('error', err)
     else this.emit('close')
