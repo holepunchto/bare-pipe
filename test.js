@@ -102,6 +102,38 @@ test('server + client, only client writes', async (t) => {
   server.close()
 })
 
+test('immediate destroy', async (t) => {
+  t.plan(2)
+
+  const n = name()
+
+  const lc = t.test('lifecycle')
+  lc.plan(3)
+
+  const server = Pipe.createServer()
+  server
+    .on('close', () => t.pass('server closed'))
+    .on('connection', (pipe) => {
+      pipe
+        .on('close', () => lc.pass('server socket closed'))
+        .on('end', () => {
+          lc.pass('server ended')
+          pipe.end()
+        })
+    })
+    .listen(n)
+
+  const client = new Pipe(n)
+  client
+    .on('close', () => lc.pass('client socket closed'))
+    .on('end', () => lc.pass('client ended'))
+    .destroy()
+
+  await lc
+
+  server.close()
+})
+
 test('pipe', async (t) => {
   t.plan(1)
 
