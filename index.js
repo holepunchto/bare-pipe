@@ -279,7 +279,7 @@ module.exports = exports = class Pipe extends Duplex {
   }
 
   _onfinal(err) {
-    this._continueFinal(err)
+    this._continueFinal(err === null || err.code === 'ENOTCONN' ? null : err)
   }
 
   _onclose() {
