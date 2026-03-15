@@ -7,6 +7,7 @@ declare const constants: {
   CLOSING: number
   READABLE: number
   WRITABLE: number
+  UNREFED: number
 }
 
 export = constants
