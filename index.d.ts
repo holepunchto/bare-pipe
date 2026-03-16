@@ -42,7 +42,7 @@ declare class Pipe<M extends PipeEvents = PipeEvents> extends Duplex<M> {
 interface PipeServerEvents extends EventMap {
   close: []
   connection: [pipe: Pipe]
-  err: [err: Error]
+  error: [err: Error]
   listening: []
 }
 
