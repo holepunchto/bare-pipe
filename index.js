@@ -150,16 +150,12 @@ module.exports = exports = class Pipe extends Duplex {
   }
 
   ref() {
-    this._state &= ~constants.state.UNREFED
-
     binding.ref(this._handle)
 
     return this
   }
 
   unref() {
-    this._state |= constants.state.UNREFED
-
     binding.unref(this._handle)
 
     return this
@@ -176,8 +172,6 @@ module.exports = exports = class Pipe extends Duplex {
       this._state |= constants.state.READING
 
       binding.resume(this._handle)
-
-      if (this._state & constants.state.UNREFED) binding.unref(this._handle)
     }
   }
 
