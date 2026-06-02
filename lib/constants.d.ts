@@ -10,6 +10,11 @@ declare const constants: {
     WRITABLE: number
     UNREFED: number
   }
+  handle: {
+    NAMED_PIPE: number
+    TCP: number
+    UDP: number
+  }
 }
 
 export = constants

@@ -1,15 +1,18 @@
 import EventEmitter, { EventMap } from 'bare-events'
+import Buffer, { BufferEncoding } from 'bare-buffer'
 import { Duplex, DuplexEvents } from 'bare-stream'
 import PipeError from './lib/errors'
 import constants from './lib/constants'
 
 interface PipeEvents extends DuplexEvents {
   connect: []
+  handle: [type: number]
 }
 
 interface PipeOptions {
   allowHalfOpen?: boolean
   eagerOpen?: boolean
+  ipc?: boolean
   readBufferSize?: number
 }
 
@@ -30,6 +33,22 @@ interface Pipe<M extends PipeEvents = PipeEvents> extends Duplex<M> {
   connect(path: string, onconnect: () => void): this
   connect(opts: PipeConnectOptions, onconnect?: () => void): this
 
+  write(
+    chunk: Buffer | string,
+    encoding: BufferEncoding,
+    handle?: unknown,
+    cb?: (err: Error | null) => void
+  ): boolean
+  write(
+    chunk: Buffer | string,
+    encoding: BufferEncoding,
+    cb?: (err: Error | null) => void
+  ): boolean
+  write(chunk: Buffer | string, handle?: unknown, cb?: (err: Error | null) => void): boolean
+  write(chunk: Buffer | string, cb?: (err: Error | null) => void): boolean
+
+  accept<T>(target: T): T
+
   ref(): this
   unref(): this
 }
@@ -48,6 +67,7 @@ interface PipeServerEvents extends EventMap {
 
 interface PipeServerOptions {
   allowHalfOpen?: boolean
+  ipc?: boolean
   pauseOnConnect?: boolean
   readBufferSize?: number
 }

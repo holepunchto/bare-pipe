@@ -14,26 +14,38 @@ module.exports = exports = class Pipe extends Duplex {
       path = null
     }
 
-    const { readBufferSize = defaultReadBufferSize, allowHalfOpen = true, eagerOpen = true } = opts
+    const {
+      readBufferSize = defaultReadBufferSize,
+      allowHalfOpen = true,
+      eagerOpen = true,
+      ipc = false
+    } = opts
 
     super({ eagerOpen })
 
     this._state = 0
 
     this._allowHalfOpen = allowHalfOpen
+    this._ipc = ipc
 
     this._fd = -1
     this._path = null
 
     this._pendingOpen = null
     this._pendingWrite = null
+    this._pendingWriteSegments = null
+    this._pendingWriteIdx = 0
     this._pendingFinal = null
     this._pendingDestroy = null
+
+    this._handleQueue = []
+    this._handleQueueSize = 0
 
     this._buffer = Buffer.alloc(readBufferSize)
 
     this._handle = binding.init(
       this._buffer,
+      ipc,
       this,
       noop,
       this._onconnect,
@@ -149,6 +161,37 @@ module.exports = exports = class Pipe extends Duplex {
     return this
   }
 
+  write(chunk, encoding, handle, cb) {
+    if (typeof encoding === 'function') {
+      cb = encoding
+      encoding = undefined
+      handle = null
+    } else if (typeof encoding === 'object' && encoding !== null) {
+      if (typeof handle === 'function') cb = handle
+      handle = encoding
+      encoding = undefined
+    } else if (typeof handle === 'function') {
+      cb = handle
+      handle = null
+    }
+
+    if (handle) this._handleQueueSize++
+
+    this._handleQueue.push(handle || null)
+
+    if (encoding) return super.write(chunk, encoding, cb)
+
+    return super.write(chunk, cb)
+  }
+
+  accept(target) {
+    binding.accept(this._handle, target._handle)
+
+    target._onaccept()
+
+    return target
+  }
+
   ref() {
     binding.ref(this._handle)
 
@@ -176,12 +219,59 @@ module.exports = exports = class Pipe extends Duplex {
   }
 
   _writev(batch, cb) {
-    this._pendingWrite = [cb, batch]
+    this._pendingWrite = cb
 
-    binding.writev(
-      this._handle,
-      batch.map(({ chunk }) => chunk)
-    )
+    if (this._handleQueueSize === 0) {
+      this._handleQueue = []
+      this._pendingWriteSegments = null
+
+      binding.writev(
+        this._handle,
+        batch.map(({ chunk }) => chunk),
+        null
+      )
+      return
+    }
+
+    const handles = this._handleQueue.splice(0, batch.length)
+
+    for (let i = 0; i < batch.length; i++) {
+      if (handles[i] === undefined) handles[i] = null
+      else if (handles[i] !== null) this._handleQueueSize--
+    }
+
+    const segments = []
+
+    let i = 0
+    while (i < batch.length) {
+      if (handles[i] !== null) {
+        segments.push({ chunks: [batch[i]], handle: handles[i] })
+        i++
+      } else {
+        const start = i
+        while (i < batch.length && handles[i] === null) i++
+        segments.push({ chunks: batch.slice(start, i), handle: null })
+      }
+    }
+
+    this._pendingWriteSegments = segments
+    this._pendingWriteIdx = 0
+
+    this._writeNextSegment()
+  }
+
+  _writeNextSegment() {
+    const segment = this._pendingWriteSegments[this._pendingWriteIdx]
+
+    const chunks = []
+    for (let i = 0; i < segment.chunks.length; i++) {
+      chunks.push(segment.chunks[i].chunk)
+    }
+
+    let sendHandle = null
+    if (segment.handle !== null) sendHandle = segment.handle._handle
+
+    binding.writev(this._handle, chunks, sendHandle)
   }
 
   _final(cb) {
@@ -219,8 +309,25 @@ module.exports = exports = class Pipe extends Duplex {
 
   _continueWrite(err) {
     if (this._pendingWrite === null) return
-    const cb = this._pendingWrite[0]
+
+    if (this._pendingWriteSegments === null) {
+      const cb = this._pendingWrite
+      this._pendingWrite = null
+      cb(err)
+      return
+    }
+
+    this._pendingWriteIdx++
+
+    if (err === null && this._pendingWriteIdx < this._pendingWriteSegments.length) {
+      this._writeNextSegment()
+      return
+    }
+
+    const cb = this._pendingWrite
     this._pendingWrite = null
+    this._pendingWriteSegments = null
+    this._pendingWriteIdx = 0
     cb(err)
   }
 
@@ -252,7 +359,12 @@ module.exports = exports = class Pipe extends Duplex {
     this.emit('connect')
   }
 
-  _onread(err, read) {
+  _onaccept() {
+    this._state |= constants.state.CONNECTED | constants.state.READABLE | constants.state.WRITABLE
+    this._continueOpen()
+  }
+
+  _onread(err, read, pendingType) {
     if (err) {
       this.destroy(err)
       return
@@ -263,6 +375,8 @@ module.exports = exports = class Pipe extends Duplex {
       if (this._allowHalfOpen === false) this.end()
       return
     }
+
+    if (pendingType !== 0) this.emit('handle', pendingType)
 
     const copy = Buffer.allocUnsafe(read)
     copy.set(this._buffer.subarray(0, read))
@@ -323,7 +437,8 @@ exports.Server = class PipeServer extends EventEmitter {
     const {
       readBufferSize = defaultReadBufferSize,
       allowHalfOpen = true,
-      pauseOnConnect = false
+      pauseOnConnect = false,
+      ipc = false
     } = opts
 
     this._state = 0
@@ -331,6 +446,7 @@ exports.Server = class PipeServer extends EventEmitter {
     this._readBufferSize = readBufferSize
     this._allowHalfOpen = allowHalfOpen
     this._pauseOnConnect = pauseOnConnect
+    this._ipc = ipc
 
     this._path = null
     this._connections = new Set()
@@ -380,6 +496,7 @@ exports.Server = class PipeServer extends EventEmitter {
 
     this._handle = binding.init(
       empty,
+      this._ipc,
       this,
       this._onconnection,
       noop,
@@ -455,14 +572,15 @@ exports.Server = class PipeServer extends EventEmitter {
     const pipe = new exports.Pipe({
       readBufferSize: this._readBufferSize,
       allowHalfOpen: this._allowHalfOpen,
-      eagerOpen: !this._pauseOnConnect
+      eagerOpen: !this._pauseOnConnect,
+      ipc: this._ipc
     })
 
     try {
       binding.accept(this._handle, pipe._handle)
 
       pipe._path = this._path
-      pipe._state |= constants.state.CONNECTED | constants.state.READABLE | constants.state.WRITABLE
+      pipe._onaccept()
 
       this._connections.add(pipe)
 

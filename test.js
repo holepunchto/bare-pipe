@@ -1,4 +1,5 @@
 const test = require('brittle')
+const tcp = require('bare-tcp')
 const Pipe = require('.')
 
 const isWindows = Bare.platform === 'win32'
@@ -146,6 +147,106 @@ test('pipe', async (t) => {
   const write = new Pipe(fds[1])
 
   write.end('hello pipe')
+})
+
+test('ipc, data only', { skip: isWindows }, async (t) => {
+  t.plan(1)
+
+  const [a, b] = tcp.socketpair()
+
+  const left = new Pipe(a, { ipc: true })
+  const right = new Pipe(b, { ipc: true })
+
+  right.on('data', (data) => {
+    t.alike(data, Buffer.from('hello ipc'))
+    left.destroy()
+    right.destroy()
+  })
+
+  left.write(Buffer.from('hello ipc'))
+})
+
+test('ipc, pipe handle pass', { skip: isWindows }, async (t) => {
+  t.plan(3)
+
+  const echo = name()
+
+  const server = Pipe.createServer()
+  server.on('connection', (peer) => peer.pipe(peer)).listen(echo)
+
+  const [a, b] = tcp.socketpair()
+
+  const left = new Pipe(a, { ipc: true })
+  const right = new Pipe(b, { ipc: true })
+
+  right
+    .on('handle', (type) => {
+      t.is(type, Pipe.constants.handle.NAMED_PIPE)
+
+      const received = new Pipe()
+      right.accept(received)
+
+      received.on('data', (data) => {
+        t.alike(data, Buffer.from('ping'))
+        received.destroy()
+        left.destroy()
+        right.destroy()
+        server.close()
+      })
+      received.write('ping')
+    })
+    .resume()
+
+  const peer = new Pipe(echo)
+  peer.on('connect', () => {
+    left.write(Buffer.from('here'), peer, () => {
+      t.pass('handle sent')
+      peer.destroy()
+    })
+  })
+})
+
+test('ipc, tcp handle pass', { skip: isWindows }, async (t) => {
+  t.plan(3)
+
+  const server = tcp.createServer()
+  server.on('connection', (sock) => sock.pipe(sock)).listen()
+
+  await new Promise((resolve) => server.on('listening', resolve))
+
+  const { port } = server.address()
+
+  const [a, b] = tcp.socketpair()
+
+  const left = new Pipe(a, { ipc: true })
+  const right = new Pipe(b, { ipc: true })
+
+  right
+    .on('handle', (type) => {
+      t.is(type, Pipe.constants.handle.TCP)
+
+      const received = new tcp.Socket()
+      right.accept(received)
+
+      received
+        .on('data', (data) => {
+          t.alike(data, Buffer.from('ping'))
+          received.destroy()
+          left.destroy()
+          right.destroy()
+          server.close()
+        })
+        .write('ping')
+    })
+    .resume()
+
+  const peer = tcp.createConnection(port)
+  peer.on('connect', () => {
+    left.write(Buffer.from('here'), peer, () => {
+      t.pass('handle sent')
+      peer.destroy()
+    })
+  })
 })
 
 function name() {
