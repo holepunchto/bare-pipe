@@ -39,11 +39,7 @@ interface Pipe<M extends PipeEvents = PipeEvents> extends Duplex<M> {
     handle?: unknown,
     cb?: (err: Error | null) => void
   ): boolean
-  write(
-    chunk: Buffer | string,
-    encoding: BufferEncoding,
-    cb?: (err: Error | null) => void
-  ): boolean
+  write(chunk: Buffer | string, encoding: BufferEncoding, cb?: (err: Error | null) => void): boolean
   write(chunk: Buffer | string, handle?: unknown, cb?: (err: Error | null) => void): boolean
   write(chunk: Buffer | string, cb?: (err: Error | null) => void): boolean
 
