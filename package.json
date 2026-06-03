@@ -49,7 +49,7 @@
   },
   "devDependencies": {
     "bare-path": "^3.0.0",
-    "bare-tcp": "^2.4.0",
+    "bare-tcp": "^2.4.1",
     "brittle": "^3.2.1",
     "cmake-bare": "^1.1.6",
     "prettier": "^3.4.1",
