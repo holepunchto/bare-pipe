@@ -7,6 +7,9 @@ const errors = require('./lib/errors')
 const defaultReadBufferSize = 65536
 const empty = Buffer.alloc(0)
 
+const ipcHandle = Symbol.for('bare.ipc.handle')
+const ipcAccept = Symbol.for('bare.ipc.accept')
+
 module.exports = exports = class Pipe extends Duplex {
   constructor(path, opts = {}) {
     if (typeof path === 'object' && path !== null) {
@@ -14,32 +17,45 @@ module.exports = exports = class Pipe extends Duplex {
       path = null
     }
 
-    const { readBufferSize = defaultReadBufferSize, allowHalfOpen = true, eagerOpen = true } = opts
+    const {
+      readBufferSize = defaultReadBufferSize,
+      allowHalfOpen = true,
+      eagerOpen = true,
+      ipc = false
+    } = opts
 
     super({ eagerOpen })
 
     this._state = 0
 
     this._allowHalfOpen = allowHalfOpen
+    this._ipc = ipc
 
     this._fd = -1
     this._path = null
 
     this._pendingOpen = null
     this._pendingWrite = null
+    this._pendingWriteSegments = null
+    this._pendingWriteIdx = 0
     this._pendingFinal = null
     this._pendingDestroy = null
+
+    this._handleQueue = []
+    this._handleQueueSize = 0
 
     this._buffer = Buffer.alloc(readBufferSize)
 
     this._handle = binding.init(
       this._buffer,
+      ipc,
       this,
       noop,
       this._onconnect,
       this._onwrite,
       this._onfinal,
       this._onread,
+      this._onhandle,
       this._onclose
     )
 
@@ -72,6 +88,10 @@ module.exports = exports = class Pipe extends Duplex {
     }
 
     return 'opening'
+  }
+
+  get [ipcHandle]() {
+    return this._handle
   }
 
   open(fd, opts = {}, onconnect) {
@@ -149,6 +169,43 @@ module.exports = exports = class Pipe extends Duplex {
     return this
   }
 
+  write(chunk, encoding, handle, cb) {
+    if (typeof encoding === 'function') {
+      cb = encoding
+      encoding = undefined
+      handle = null
+    } else if (typeof encoding === 'object' && encoding !== null) {
+      if (typeof handle === 'function') cb = handle
+      handle = encoding
+      encoding = undefined
+    } else if (typeof handle === 'function') {
+      cb = handle
+      handle = null
+    }
+
+    if (handle) this._handleQueueSize++
+
+    this._handleQueue.push(handle || null)
+
+    if (encoding) return super.write(chunk, encoding, cb)
+
+    return super.write(chunk, cb)
+  }
+
+  accept(target) {
+    const handle = target[ipcHandle]
+
+    if (handle === undefined) {
+      throw errors.INVALID_IPC_TARGET('Target does not implement the IPC handle protocol')
+    }
+
+    binding.accept(this._handle, handle)
+
+    if (typeof target[ipcAccept] === 'function') target[ipcAccept]()
+
+    return target
+  }
+
   ref() {
     binding.ref(this._handle)
 
@@ -159,6 +216,10 @@ module.exports = exports = class Pipe extends Duplex {
     binding.unref(this._handle)
 
     return this
+  }
+
+  [ipcAccept]() {
+    this._onaccept()
   }
 
   _open(cb) {
@@ -176,12 +237,61 @@ module.exports = exports = class Pipe extends Duplex {
   }
 
   _writev(batch, cb) {
-    this._pendingWrite = [cb, batch]
+    this._pendingWrite = cb
 
-    binding.writev(
-      this._handle,
-      batch.map(({ chunk }) => chunk)
-    )
+    if (this._handleQueueSize === 0) {
+      this._handleQueue = []
+      this._pendingWriteSegments = null
+
+      binding.writev(
+        this._handle,
+        batch.map(({ chunk }) => chunk),
+        null
+      )
+      return
+    }
+
+    const handles = this._handleQueue.splice(0, batch.length)
+
+    // Fill any holes in the batch for messages that don't carry a handle. Each
+    // message that does carry a handle decrements the handle queue size.
+    for (let i = 0; i < batch.length; i++) {
+      if (handles[i] === undefined) handles[i] = null
+      else if (handles[i] !== null) this._handleQueueSize--
+    }
+
+    const segments = []
+
+    let i = 0
+    while (i < batch.length) {
+      if (handles[i] !== null) {
+        segments.push({ chunks: [batch[i]], handle: handles[i] })
+        i++
+      } else {
+        const start = i
+        while (i < batch.length && handles[i] === null) i++
+        segments.push({ chunks: batch.slice(start, i), handle: null })
+      }
+    }
+
+    this._pendingWriteSegments = segments
+    this._pendingWriteIdx = 0
+
+    this._writeNextSegment()
+  }
+
+  _writeNextSegment() {
+    const segment = this._pendingWriteSegments[this._pendingWriteIdx]
+
+    const chunks = []
+    for (let i = 0; i < segment.chunks.length; i++) {
+      chunks.push(segment.chunks[i].chunk)
+    }
+
+    let sendHandle = null
+    if (segment.handle !== null) sendHandle = segment.handle[ipcHandle]
+
+    binding.writev(this._handle, chunks, sendHandle)
   }
 
   _final(cb) {
@@ -219,8 +329,25 @@ module.exports = exports = class Pipe extends Duplex {
 
   _continueWrite(err) {
     if (this._pendingWrite === null) return
-    const cb = this._pendingWrite[0]
+
+    if (this._pendingWriteSegments === null) {
+      const cb = this._pendingWrite
+      this._pendingWrite = null
+      cb(err)
+      return
+    }
+
+    this._pendingWriteIdx++
+
+    if (err === null && this._pendingWriteIdx < this._pendingWriteSegments.length) {
+      this._writeNextSegment()
+      return
+    }
+
+    const cb = this._pendingWrite
     this._pendingWrite = null
+    this._pendingWriteSegments = null
+    this._pendingWriteIdx = 0
     cb(err)
   }
 
@@ -252,6 +379,11 @@ module.exports = exports = class Pipe extends Duplex {
     this.emit('connect')
   }
 
+  _onaccept() {
+    this._state |= constants.state.CONNECTED | constants.state.READABLE | constants.state.WRITABLE
+    this._continueOpen()
+  }
+
   _onread(err, read) {
     if (err) {
       this.destroy(err)
@@ -272,6 +404,10 @@ module.exports = exports = class Pipe extends Duplex {
 
       binding.pause(this._handle)
     }
+  }
+
+  _onhandle(type) {
+    this.emit('handle', type)
   }
 
   _onwrite(err) {
@@ -323,7 +459,8 @@ exports.Server = class PipeServer extends EventEmitter {
     const {
       readBufferSize = defaultReadBufferSize,
       allowHalfOpen = true,
-      pauseOnConnect = false
+      pauseOnConnect = false,
+      ipc = false
     } = opts
 
     this._state = 0
@@ -331,6 +468,7 @@ exports.Server = class PipeServer extends EventEmitter {
     this._readBufferSize = readBufferSize
     this._allowHalfOpen = allowHalfOpen
     this._pauseOnConnect = pauseOnConnect
+    this._ipc = ipc
 
     this._path = null
     this._connections = new Set()
@@ -380,8 +518,10 @@ exports.Server = class PipeServer extends EventEmitter {
 
     this._handle = binding.init(
       empty,
+      this._ipc,
       this,
       this._onconnection,
+      noop,
       noop,
       noop,
       noop,
@@ -455,14 +595,15 @@ exports.Server = class PipeServer extends EventEmitter {
     const pipe = new exports.Pipe({
       readBufferSize: this._readBufferSize,
       allowHalfOpen: this._allowHalfOpen,
-      eagerOpen: !this._pauseOnConnect
+      eagerOpen: !this._pauseOnConnect,
+      ipc: this._ipc
     })
 
     try {
       binding.accept(this._handle, pipe._handle)
 
       pipe._path = this._path
-      pipe._state |= constants.state.CONNECTED | constants.state.READABLE | constants.state.WRITABLE
+      pipe._onaccept()
 
       this._connections.add(pipe)
 

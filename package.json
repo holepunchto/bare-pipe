@@ -1,6 +1,6 @@
 {
   "name": "bare-pipe",
-  "version": "4.1.5",
+  "version": "4.2.0-0",
   "description": "Native I/O pipes for JavaScript",
   "exports": {
     "./package": "./package.json",
@@ -49,6 +49,7 @@
   },
   "devDependencies": {
     "bare-path": "^3.0.0",
+    "bare-tcp": "^2.4.1",
     "brittle": "^3.2.1",
     "cmake-bare": "^1.1.6",
     "prettier": "^3.4.1",

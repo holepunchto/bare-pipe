@@ -1,15 +1,26 @@
 import EventEmitter, { EventMap } from 'bare-events'
+import Buffer, { BufferEncoding } from 'bare-buffer'
 import { Duplex, DuplexEvents } from 'bare-stream'
 import PipeError from './lib/errors'
 import constants from './lib/constants'
 
+declare const ipcHandle: unique symbol
+declare const ipcAccept: unique symbol
+
+interface IPCAcceptable {
+  readonly [ipcHandle]: unknown
+  [ipcAccept]?(): void
+}
+
 interface PipeEvents extends DuplexEvents {
   connect: []
+  handle: [type: number]
 }
 
 interface PipeOptions {
   allowHalfOpen?: boolean
   eagerOpen?: boolean
+  ipc?: boolean
   readBufferSize?: number
 }
 
@@ -17,7 +28,7 @@ interface PipeConnectOptions {
   path?: string
 }
 
-interface Pipe<M extends PipeEvents = PipeEvents> extends Duplex<M> {
+interface Pipe<M extends PipeEvents = PipeEvents> extends Duplex<M>, IPCAcceptable {
   readonly connecting: boolean
   readonly pending: boolean
   readonly readyState: 'open' | 'readOnly' | 'writeOnly' | 'opening'
@@ -29,6 +40,18 @@ interface Pipe<M extends PipeEvents = PipeEvents> extends Duplex<M> {
   connect(path: string, opts?: PipeConnectOptions, onconnect?: () => void): this
   connect(path: string, onconnect: () => void): this
   connect(opts: PipeConnectOptions, onconnect?: () => void): this
+
+  write(
+    chunk: Buffer | string,
+    encoding: BufferEncoding,
+    handle?: IPCAcceptable,
+    cb?: (err: Error | null) => void
+  ): boolean
+  write(chunk: Buffer | string, encoding: BufferEncoding, cb?: (err: Error | null) => void): boolean
+  write(chunk: Buffer | string, handle?: IPCAcceptable, cb?: (err: Error | null) => void): boolean
+  write(chunk: Buffer | string, cb?: (err: Error | null) => void): boolean
+
+  accept<T extends IPCAcceptable>(target: T): T
 
   ref(): this
   unref(): this
@@ -48,6 +71,7 @@ interface PipeServerEvents extends EventMap {
 
 interface PipeServerOptions {
   allowHalfOpen?: boolean
+  ipc?: boolean
   pauseOnConnect?: boolean
   readBufferSize?: number
 }
@@ -101,6 +125,7 @@ declare namespace Pipe {
   export function pipe(): [read: number, write: number]
 
   export {
+    type IPCAcceptable,
     type PipeEvents,
     type PipeOptions,
     Pipe,
