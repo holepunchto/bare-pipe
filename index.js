@@ -7,6 +7,9 @@ const errors = require('./lib/errors')
 const defaultReadBufferSize = 65536
 const empty = Buffer.alloc(0)
 
+const ipcHandle = Symbol.for('bare.ipc.handle')
+const ipcAccept = Symbol.for('bare.ipc.accept')
+
 module.exports = exports = class Pipe extends Duplex {
   constructor(path, opts = {}) {
     if (typeof path === 'object' && path !== null) {
@@ -85,6 +88,10 @@ module.exports = exports = class Pipe extends Duplex {
     }
 
     return 'opening'
+  }
+
+  get [ipcHandle]() {
+    return this._handle
   }
 
   open(fd, opts = {}, onconnect) {
@@ -186,9 +193,15 @@ module.exports = exports = class Pipe extends Duplex {
   }
 
   accept(target) {
-    binding.accept(this._handle, target._handle)
+    const handle = target[ipcHandle]
 
-    target._onaccept()
+    if (handle === undefined) {
+      throw errors.INVALID_IPC_TARGET('Target does not implement the IPC handle protocol')
+    }
+
+    binding.accept(this._handle, handle)
+
+    if (typeof target[ipcAccept] === 'function') target[ipcAccept]()
 
     return target
   }
@@ -203,6 +216,10 @@ module.exports = exports = class Pipe extends Duplex {
     binding.unref(this._handle)
 
     return this
+  }
+
+  [ipcAccept]() {
+    this._onaccept()
   }
 
   _open(cb) {

@@ -4,6 +4,9 @@ import { Duplex, DuplexEvents } from 'bare-stream'
 import PipeError from './lib/errors'
 import constants from './lib/constants'
 
+declare const ipcHandle: unique symbol
+declare const ipcAccept: unique symbol
+
 interface PipeEvents extends DuplexEvents {
   connect: []
   handle: [type: number]
@@ -20,7 +23,12 @@ interface PipeConnectOptions {
   path?: string
 }
 
-interface Pipe<M extends PipeEvents = PipeEvents> extends Duplex<M> {
+interface IPCAcceptable {
+  readonly [ipcHandle]: unknown
+  [ipcAccept]?(): void
+}
+
+interface Pipe<M extends PipeEvents = PipeEvents> extends Duplex<M>, IPCAcceptable {
   readonly connecting: boolean
   readonly pending: boolean
   readonly readyState: 'open' | 'readOnly' | 'writeOnly' | 'opening'
@@ -36,14 +44,14 @@ interface Pipe<M extends PipeEvents = PipeEvents> extends Duplex<M> {
   write(
     chunk: Buffer | string,
     encoding: BufferEncoding,
-    handle?: unknown,
+    handle?: IPCAcceptable,
     cb?: (err: Error | null) => void
   ): boolean
   write(chunk: Buffer | string, encoding: BufferEncoding, cb?: (err: Error | null) => void): boolean
-  write(chunk: Buffer | string, handle?: unknown, cb?: (err: Error | null) => void): boolean
+  write(chunk: Buffer | string, handle?: IPCAcceptable, cb?: (err: Error | null) => void): boolean
   write(chunk: Buffer | string, cb?: (err: Error | null) => void): boolean
 
-  accept<T>(target: T): T
+  accept<T extends IPCAcceptable>(target: T): T
 
   ref(): this
   unref(): this
@@ -128,6 +136,7 @@ declare namespace Pipe {
     PipeServer as Server,
     type PipeError,
     PipeError as errors,
+    type IPCAcceptable,
     constants
   }
 }
