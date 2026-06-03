@@ -24,6 +24,7 @@ typedef struct {
   js_ref_t *on_write;
   js_ref_t *on_end;
   js_ref_t *on_read;
+  js_ref_t *on_handle;
   js_ref_t *on_close;
 
   bool closing;
@@ -234,12 +235,6 @@ bare_pipe__on_read(uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf) {
 
   if (pipe->exiting) return;
 
-  uv_handle_type pending_type = UV_UNKNOWN_HANDLE;
-
-  if (uv_pipe_pending_count((uv_pipe_t *) stream) > 0) {
-    pending_type = uv_pipe_pending_type((uv_pipe_t *) stream);
-  }
-
   js_env_t *env = pipe->env;
 
   js_handle_scope_t *scope;
@@ -250,11 +245,37 @@ bare_pipe__on_read(uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf) {
   err = js_get_reference_value(env, pipe->ctx, &ctx);
   assert(err == 0);
 
+  size_t pending = uv_pipe_pending_count((uv_pipe_t *) stream);
+
+  while (pending > 0 && !pipe->exiting) {
+    uv_handle_type type = uv_pipe_pending_type((uv_pipe_t *) stream);
+
+    js_value_t *on_handle;
+    err = js_get_reference_value(env, pipe->on_handle, &on_handle);
+    assert(err == 0);
+
+    js_value_t *argv[1];
+    err = js_create_uint32(env, (uint32_t) type, &argv[0]);
+    assert(err == 0);
+
+    js_call_function(env, ctx, on_handle, 1, argv, NULL);
+
+    size_t next = uv_pipe_pending_count((uv_pipe_t *) stream);
+    if (next >= pending) break;
+    pending = next;
+  }
+
+  if (pipe->exiting) {
+    err = js_close_handle_scope(env, scope);
+    assert(err == 0);
+    return;
+  }
+
   js_value_t *on_read;
   err = js_get_reference_value(env, pipe->on_read, &on_read);
   assert(err == 0);
 
-  js_value_t *argv[3];
+  js_value_t *argv[2];
 
   if (nread < 0) {
     js_value_t *code;
@@ -278,10 +299,7 @@ bare_pipe__on_read(uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf) {
     assert(err == 0);
   }
 
-  err = js_create_uint32(env, (uint32_t) pending_type, &argv[2]);
-  assert(err == 0);
-
-  js_call_function(env, ctx, on_read, 3, argv, NULL);
+  js_call_function(env, ctx, on_read, 2, argv, NULL);
 
   err = js_close_handle_scope(env, scope);
   assert(err == 0);
@@ -324,6 +342,9 @@ bare_pipe__on_close(uv_handle_t *handle) {
   err = js_delete_reference(env, pipe->on_read);
   assert(err == 0);
 
+  err = js_delete_reference(env, pipe->on_handle);
+  assert(err == 0);
+
   err = js_delete_reference(env, pipe->on_close);
   assert(err == 0);
 
@@ -361,13 +382,13 @@ static js_value_t *
 bare_pipe_init(js_env_t *env, js_callback_info_t *info) {
   int err;
 
-  size_t argc = 9;
-  js_value_t *argv[9];
+  size_t argc = 10;
+  js_value_t *argv[10];
 
   err = js_get_callback_info(env, info, &argc, argv, NULL, NULL);
   assert(err == 0);
 
-  assert(argc == 9);
+  assert(argc == 10);
 
   uv_loop_t *loop;
   err = js_get_env_loop(env, &loop);
@@ -417,7 +438,10 @@ bare_pipe_init(js_env_t *env, js_callback_info_t *info) {
   err = js_create_reference(env, argv[7], 1, &pipe->on_read);
   assert(err == 0);
 
-  err = js_create_reference(env, argv[8], 1, &pipe->on_close);
+  err = js_create_reference(env, argv[8], 1, &pipe->on_handle);
+  assert(err == 0);
+
+  err = js_create_reference(env, argv[9], 1, &pipe->on_close);
   assert(err == 0);
 
   err = js_add_deferred_teardown_callback(env, bare_pipe__on_teardown, (void *) pipe, &pipe->teardown);

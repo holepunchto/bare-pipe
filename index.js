@@ -52,6 +52,7 @@ module.exports = exports = class Pipe extends Duplex {
       this._onwrite,
       this._onfinal,
       this._onread,
+      this._onhandle,
       this._onclose
     )
 
@@ -364,7 +365,7 @@ module.exports = exports = class Pipe extends Duplex {
     this._continueOpen()
   }
 
-  _onread(err, read, pendingType) {
+  _onread(err, read) {
     if (err) {
       this.destroy(err)
       return
@@ -376,8 +377,6 @@ module.exports = exports = class Pipe extends Duplex {
       return
     }
 
-    if (pendingType !== 0) this.emit('handle', pendingType)
-
     const copy = Buffer.allocUnsafe(read)
     copy.set(this._buffer.subarray(0, read))
 
@@ -386,6 +385,10 @@ module.exports = exports = class Pipe extends Duplex {
 
       binding.pause(this._handle)
     }
+  }
+
+  _onhandle(type) {
+    this.emit('handle', type)
   }
 
   _onwrite(err) {
@@ -499,6 +502,7 @@ exports.Server = class PipeServer extends EventEmitter {
       this._ipc,
       this,
       this._onconnection,
+      noop,
       noop,
       noop,
       noop,

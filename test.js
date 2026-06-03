@@ -249,6 +249,78 @@ test('ipc, tcp handle pass', { skip: isWindows }, async (t) => {
   })
 })
 
+test('ipc, multiple pending handles drain in order', { skip: isWindows }, async (t) => {
+  t.plan(6)
+
+  const echoA = name()
+  const echoB = name()
+
+  const serverA = Pipe.createServer()
+  serverA.on('connection', (peer) => peer.pipe(peer)).listen(echoA)
+
+  const serverB = Pipe.createServer()
+  serverB.on('connection', (peer) => peer.pipe(peer)).listen(echoB)
+
+  const [a, b] = tcp.socketpair()
+
+  const left = new Pipe(a, { ipc: true })
+  const right = new Pipe(b, { ipc: true })
+
+  const received = []
+
+  right
+    .on('handle', (type) => {
+      const target = type === Pipe.constants.handle.NAMED_PIPE ? new Pipe() : new tcp.Socket()
+      right.accept(target)
+      received.push({ type, target })
+
+      if (received.length === 3) {
+        t.is(received[0].type, Pipe.constants.handle.NAMED_PIPE, 'first is pipe')
+        t.is(received[1].type, Pipe.constants.handle.TCP, 'second is tcp')
+        t.is(received[2].type, Pipe.constants.handle.NAMED_PIPE, 'third is pipe')
+
+        for (const { target } of received) target.destroy()
+        left.destroy()
+        right.destroy()
+        serverA.close()
+        serverB.close()
+      }
+    })
+    .resume()
+
+  const server = tcp.createServer()
+  server.on('connection', (sock) => sock.pipe(sock)).listen()
+  await new Promise((resolve) => server.on('listening', resolve))
+  const { port } = server.address()
+
+  const peerA = new Pipe(echoA)
+  const peerT = tcp.createConnection(port)
+  const peerB = new Pipe(echoB)
+
+  let connected = 0
+  const tryWrite = () => {
+    if (++connected < 3) return
+
+    left.write(Buffer.from('a'), peerA, () => {
+      t.pass('first sent')
+      peerA.destroy()
+    })
+    left.write(Buffer.from('b'), peerT, () => {
+      t.pass('second sent')
+      peerT.destroy()
+      server.close()
+    })
+    left.write(Buffer.from('c'), peerB, () => {
+      t.pass('third sent')
+      peerB.destroy()
+    })
+  }
+
+  peerA.on('connect', tryWrite)
+  peerT.on('connect', tryWrite)
+  peerB.on('connect', tryWrite)
+})
+
 function name() {
   const name =
     'bare-pipe-' + Math.random().toString(16).slice(2) + Math.random().toString(16).slice(2)
