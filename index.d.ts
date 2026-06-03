@@ -7,6 +7,11 @@ import constants from './lib/constants'
 declare const ipcHandle: unique symbol
 declare const ipcAccept: unique symbol
 
+interface IPCAcceptable {
+  readonly [ipcHandle]: unknown
+  [ipcAccept]?(): void
+}
+
 interface PipeEvents extends DuplexEvents {
   connect: []
   handle: [type: number]
@@ -21,11 +26,6 @@ interface PipeOptions {
 
 interface PipeConnectOptions {
   path?: string
-}
-
-interface IPCAcceptable {
-  readonly [ipcHandle]: unknown
-  [ipcAccept]?(): void
 }
 
 interface Pipe<M extends PipeEvents = PipeEvents> extends Duplex<M>, IPCAcceptable {
@@ -125,6 +125,7 @@ declare namespace Pipe {
   export function pipe(): [read: number, write: number]
 
   export {
+    type IPCAcceptable,
     type PipeEvents,
     type PipeOptions,
     Pipe,
@@ -136,7 +137,6 @@ declare namespace Pipe {
     PipeServer as Server,
     type PipeError,
     PipeError as errors,
-    type IPCAcceptable,
     constants
   }
 }

@@ -289,7 +289,7 @@ module.exports = exports = class Pipe extends Duplex {
     }
 
     let sendHandle = null
-    if (segment.handle !== null) sendHandle = segment.handle._handle
+    if (segment.handle !== null) sendHandle = segment.handle[ipcHandle]
 
     binding.writev(this._handle, chunks, sendHandle)
   }
