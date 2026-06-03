@@ -247,7 +247,7 @@ bare_pipe__on_read(uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf) {
 
   size_t pending = uv_pipe_pending_count((uv_pipe_t *) stream);
 
-  while (pending > 0 && !pipe->exiting) {
+  while (pending > 0 && !pipe->exiting && !pipe->closing) {
     uv_handle_type type = uv_pipe_pending_type((uv_pipe_t *) stream);
 
     js_value_t *on_handle;
@@ -261,13 +261,16 @@ bare_pipe__on_read(uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf) {
     js_call_function(env, ctx, on_handle, 1, argv, NULL);
 
     size_t next = uv_pipe_pending_count((uv_pipe_t *) stream);
+
     if (next >= pending) break;
+
     pending = next;
   }
 
-  if (pipe->exiting) {
+  if (pipe->exiting || pipe->closing) {
     err = js_close_handle_scope(env, scope);
     assert(err == 0);
+
     return;
   }
 
