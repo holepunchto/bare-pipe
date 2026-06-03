@@ -221,6 +221,8 @@ test('ipc, tcp handle pass', { skip: isWindows }, async (t) => {
   const left = new Pipe(a, { ipc: true })
   const right = new Pipe(b, { ipc: true })
 
+  const peer = tcp.createConnection(port)
+
   right
     .on('handle', (type) => {
       t.is(type, Pipe.constants.handle.TCP)
@@ -232,6 +234,7 @@ test('ipc, tcp handle pass', { skip: isWindows }, async (t) => {
         .on('data', (data) => {
           t.alike(data, Buffer.from('ping'))
           received.destroy()
+          peer.destroy()
           left.destroy()
           right.destroy()
           server.close()
@@ -240,12 +243,8 @@ test('ipc, tcp handle pass', { skip: isWindows }, async (t) => {
     })
     .resume()
 
-  const peer = tcp.createConnection(port)
   peer.on('connect', () => {
-    left.write(Buffer.from('here'), peer, () => {
-      t.pass('handle sent')
-      peer.destroy()
-    })
+    left.write(Buffer.from('here'), peer, () => t.pass('handle sent'))
   })
 })
 
@@ -280,10 +279,14 @@ test('ipc, multiple pending handles drain in order', { skip: isWindows }, async 
         t.is(received[2].type, Pipe.constants.handle.NAMED_PIPE, 'third is pipe')
 
         for (const { target } of received) target.destroy()
+        peerA.destroy()
+        peerT.destroy()
+        peerB.destroy()
         left.destroy()
         right.destroy()
         serverA.close()
         serverB.close()
+        server.close()
       }
     })
     .resume()
@@ -301,19 +304,9 @@ test('ipc, multiple pending handles drain in order', { skip: isWindows }, async 
   const tryWrite = () => {
     if (++connected < 3) return
 
-    left.write(Buffer.from('a'), peerA, () => {
-      t.pass('first sent')
-      peerA.destroy()
-    })
-    left.write(Buffer.from('b'), peerT, () => {
-      t.pass('second sent')
-      peerT.destroy()
-      server.close()
-    })
-    left.write(Buffer.from('c'), peerB, () => {
-      t.pass('third sent')
-      peerB.destroy()
-    })
+    left.write(Buffer.from('a'), peerA, () => t.pass('first sent'))
+    left.write(Buffer.from('b'), peerT, () => t.pass('second sent'))
+    left.write(Buffer.from('c'), peerB, () => t.pass('third sent'))
   }
 
   peerA.on('connect', tryWrite)
