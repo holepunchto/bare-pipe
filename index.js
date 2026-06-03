@@ -236,6 +236,8 @@ module.exports = exports = class Pipe extends Duplex {
 
     const handles = this._handleQueue.splice(0, batch.length)
 
+    // Fill any holes in the batch for messages that don't carry a handle. Each
+    // message that does carry a handle decrements the handle queue size.
     for (let i = 0; i < batch.length; i++) {
       if (handles[i] === undefined) handles[i] = null
       else if (handles[i] !== null) this._handleQueueSize--
