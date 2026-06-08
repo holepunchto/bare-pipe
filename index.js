@@ -36,6 +36,7 @@ module.exports = exports = class Pipe extends Duplex {
 
     this._pendingOpen = null
     this._pendingWrite = null
+    this._pendingWriteBatch = null
     this._pendingWriteSegments = null
     this._pendingWriteIdx = 0
     this._pendingFinal = null
@@ -238,6 +239,7 @@ module.exports = exports = class Pipe extends Duplex {
 
   _writev(batch, cb) {
     this._pendingWrite = cb
+    this._pendingWriteBatch = batch
 
     if (this._handleQueueSize === 0) {
       this._handleQueue = []
@@ -333,6 +335,7 @@ module.exports = exports = class Pipe extends Duplex {
     if (this._pendingWriteSegments === null) {
       const cb = this._pendingWrite
       this._pendingWrite = null
+      this._pendingWriteBatch = null
       cb(err)
       return
     }
@@ -346,6 +349,7 @@ module.exports = exports = class Pipe extends Duplex {
 
     const cb = this._pendingWrite
     this._pendingWrite = null
+    this._pendingWriteBatch = null
     this._pendingWriteSegments = null
     this._pendingWriteIdx = 0
     cb(err)
