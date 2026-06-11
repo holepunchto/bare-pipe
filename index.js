@@ -245,11 +245,15 @@ module.exports = exports = class Pipe extends Duplex {
       this._handleQueue = []
       this._pendingWriteSegments = null
 
-      binding.writev(
-        this._handle,
-        batch.map(({ chunk }) => chunk),
-        null
-      )
+      try {
+        binding.writev(
+          this._handle,
+          batch.map(({ chunk }) => chunk),
+          null
+        )
+      } catch (err) {
+        this._continueWrite(err)
+      }
       return
     }
 
@@ -293,7 +297,11 @@ module.exports = exports = class Pipe extends Duplex {
     let sendHandle = null
     if (segment.handle !== null) sendHandle = segment.handle[ipcHandle]
 
-    binding.writev(this._handle, chunks, sendHandle)
+    try {
+      binding.writev(this._handle, chunks, sendHandle)
+    } catch (err) {
+      this._continueWrite(err)
+    }
   }
 
   _final(cb) {
