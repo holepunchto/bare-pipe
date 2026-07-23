@@ -636,6 +636,7 @@ exports.Server = class PipeServer extends EventEmitter {
     const err = this._error
 
     this._state &= ~constants.state.BINDING
+    this._state &= ~constants.state.BOUND
     this._error = null
     this._handle = null
 

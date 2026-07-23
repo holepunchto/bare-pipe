@@ -314,6 +314,22 @@ test('ipc, multiple pending handles drain in order', { skip: isWindows }, async 
   peerB.on('connect', tryWrite)
 })
 
+test('server, listening is false after close', async (t) => {
+  t.plan(3)
+
+  const server = Pipe.createServer()
+  server.listen(name())
+
+  await new Promise((resolve) => server.on('listening', resolve))
+
+  t.ok(server.listening, 'listening while bound')
+
+  server.close(() => {
+    t.absent(server.listening, 'not listening after close')
+    t.is(server.address(), null, 'no address after close')
+  })
+})
+
 function name() {
   const name =
     'bare-pipe-' + Math.random().toString(16).slice(2) + Math.random().toString(16).slice(2)
