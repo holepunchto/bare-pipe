@@ -330,6 +330,16 @@ test('server, listening is false after close', async (t) => {
   })
 })
 
+test('socket, connecting is false after failed connect', async (t) => {
+  const socket = new Pipe()
+  socket.on('error', () => {})
+  socket.connect(name())
+
+  await new Promise((resolve) => socket.on('close', resolve))
+
+  t.absent(socket.connecting, 'not connecting after failed connect')
+})
+
 function name() {
   const name =
     'bare-pipe-' + Math.random().toString(16).slice(2) + Math.random().toString(16).slice(2)

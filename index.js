@@ -161,6 +161,8 @@ module.exports = exports = class Pipe extends Duplex {
 
       if (onconnect) this.once('connect', onconnect)
     } catch (err) {
+      this._state &= ~constants.state.CONNECTING
+
       queueMicrotask(() => {
         if (this._pendingOpen) this._pendingOpen(err)
         else this.destroy(err)
@@ -379,6 +381,8 @@ module.exports = exports = class Pipe extends Duplex {
 
   _onconnect(err) {
     if (err) {
+      this._state &= ~constants.state.CONNECTING
+
       if (this._pendingOpen) this._continueOpen(err)
       else this.destroy(err)
       return
