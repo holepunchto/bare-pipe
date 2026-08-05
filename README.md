@@ -16,143 +16,383 @@ const stdout = new Pipe(1)
 stdout.write('Hello world!\n')
 ```
 
+<!-- bare-refgen:api start -->
+
 ## API
 
-#### `const pipe = new Pipe([path][, options])`
+### Pipe
+
+#### `new Pipe(path: string | number, opts?: PipeOptions)`
 
 Create a new pipe. If `path` is a number, it is treated as a file descriptor to open. If it is a string, it is treated as a path to connect to.
 
-Options include:
+Overloads:
 
-```js
-options = {
-  readBufferSize: 65536,
-  allowHalfOpen: true,
-  eagerOpen: true,
-  ipc: false
-}
+```ts
+new Pipe(path: string | number, opts?: PipeOptions)
+new Pipe(opts?: PipeOptions)
 ```
 
-Set `ipc: true` to enable handle passing over the pipe. See [IPC handle passing](#ipc-handle-passing).
+**Parameters**
 
-#### `pipe.connecting`
+| Parameter | Type               | Default | Description                                                                                                                                                              |
+| --------- | ------------------ | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `path`    | `string \| number` | —       | A file descriptor to open (number), or a path to connect to (string).                                                                                                    |
+| `opts?`   | `PipeOptions`      | —       | Options; `readBufferSize` defaults to `65536`, `allowHalfOpen` and `eagerOpen` to `true`, and `ipc` to `false` (set `ipc: true` to enable handle passing over the pipe). |
 
-Whether the pipe is currently connecting.
+#### `accept<T extends IPCAcceptable>(target: T): T`
 
-#### `pipe.pending`
+Accept a pending handle into `target`. `target` must implement the [`IPCAcceptable`](#ipc-handle-passing) protocol. Call this synchronously from the `'handle'` event listener.
 
-Whether the pipe has not yet connected.
+**Parameters**
 
-#### `pipe.readyState`
+| Parameter | Type | Default | Description                                                                                                                                       |
+| --------- | ---- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `target`  | `T`  | —       | The object to accept the pending handle into; must implement the `IPCAcceptable` protocol. Call synchronously from the `'handle'` event listener. |
 
-The current state of the pipe. One of `'open'`, `'readOnly'`, `'writeOnly'`, or `'opening'`.
+**Returns** `T` — `target`, for chaining the accepted handle into an expression.
 
-#### `pipe.open(fd[, options][, onconnect])`
+**Throws**
 
-Open the pipe on the given file descriptor.
+- `INVALID_IPC_TARGET` — `target` does not implement the IPC handle protocol.
 
-#### `pipe.connect(path[, options][, onconnect])`
+#### `connect(path: string, opts?: PipeConnectOptions, onconnect?: () => void): this`
 
 Connect the pipe to `path`. `onconnect` is called when the connection is established.
 
-#### `pipe.write(chunk[, encoding][, handle][, cb])`
+Overloads:
 
-Write `chunk` to the pipe. If `handle` is given and the pipe was created with `ipc: true`, the handle is transferred to the receiver alongside the chunk. `handle` must implement the [`IPCAcceptable`](#ipc-handle-passing) protocol.
-
-#### `pipe.accept(target)`
-
-Accept a pending handle into `target`. `target` must implement the [`IPCAcceptable`](#ipc-handle-passing) protocol. Call this synchronously from the `'handle'` event listener. Throws `INVALID_IPC_TARGET` if `target` does not implement the protocol.
-
-#### `pipe.ref()`
-
-Ref the pipe, preventing the process from exiting.
-
-#### `pipe.unref()`
-
-Unref the pipe, allowing the process to exit.
-
-#### `event: 'connect'`
-
-Emitted when the pipe connects.
-
-#### `event: 'handle'`
-
-Emitted on the receiving side for each pending handle when the pipe was created with `ipc: true`. The argument is the handle type, one of `Pipe.constants.handle.NAMED_PIPE`, `TCP`, or `UDP`. The listener must call `pipe.accept(target)` synchronously to claim the handle. Multiple handles arriving in a single read are emitted in arrival order before the corresponding `'data'` event.
-
-#### `const server = Pipe.createServer([options][, onconnection])`
-
-Create a new pipe server. `server` extends <https://github.com/holepunchto/bare-events>.
-
-Options include:
-
-```js
-options = {
-  readBufferSize: 65536,
-  allowHalfOpen: true,
-  pauseOnConnect: false,
-  ipc: false
-}
+```ts
+connect(path: string, opts?: PipeConnectOptions, onconnect?: () => void): this
+connect(path: string, onconnect: () => void): this
+connect(opts: PipeConnectOptions, onconnect?: () => void): this
 ```
 
-These options are applied to each incoming pipe.
+**Parameters**
 
-#### `server.listening`
+| Parameter    | Type                 | Default | Description                                                         |
+| ------------ | -------------------- | ------- | ------------------------------------------------------------------- |
+| `path`       | `string`             | —       | The path to connect to.                                             |
+| `opts?`      | `PipeConnectOptions` | —       | Options; `path` may be given here instead of as the first argument. |
+| `onconnect?` | `() => void`         | —       | Called when the connection is established.                          |
 
-Whether the server is listening.
+**Throws**
 
-#### `server.address()`
+- `PIPE_ALREADY_CONNECTED` — the pipe is already connecting or connected.
 
-Returns the bound path, or `null` if the server is not listening.
+#### `connecting: boolean`
 
-#### `server.listen(path[, backlog[, options]][, onlistening])`
+Whether the pipe is currently connecting.
 
-Start listening for connections on `path`. `backlog` defaults to `511`.
+#### `open(fd: number, opts?: { fd?: number }, onconnect?: () => void): this`
 
-#### `server.close([onclose])`
+Open the pipe on the given file descriptor.
 
-Close the server. No new connections will be accepted. The server emits `close` after all existing connections have ended.
+Overloads:
 
-#### `server.ref()`
+```ts
+open(fd: number, opts?: { fd?: number }, onconnect?: () => void): this
+open(fd: number, onconnect: () => void): this
+open(opts: { fd: number }, onconnect?: () => void): this
+```
 
-Ref the server, preventing the process from exiting.
+**Parameters**
 
-#### `server.unref()`
+| Parameter    | Type              | Default | Description                                  |
+| ------------ | ----------------- | ------- | -------------------------------------------- |
+| `fd`         | `number`          | —       | The file descriptor to open the pipe on.     |
+| `opts?`      | `{ fd?: number }` | —       | —                                            |
+| `onconnect?` | `() => void`      | —       | Called once when the pipe emits `'connect'`. |
 
-Unref the server, allowing the process to exit.
+#### `pending: boolean`
 
-#### `event: 'listening'`
-
-Emitted when the server starts listening.
-
-#### `event: 'connection'`
-
-Emitted when a new connection is received. The argument is a `Pipe`.
-
-#### `event: 'close'`
-
-Emitted when the server closes.
-
-#### `event: 'error'`
-
-Emitted when an error occurs.
-
-#### `const pipe = Pipe.createConnection(path[, options][, onconnect])`
-
-Create a new pipe and connect it to `path`. Shorthand for `new Pipe(options).connect(path, options, onconnect)`.
-
-#### `Pipe.pipe()`
-
-Returns `[read, write]`, a pair of file descriptors connected to each other.
+Whether the pipe has not yet connected.
 
 #### `Pipe.constants`
 
-Object containing internal state constants and handle type constants:
-
-```js
-Pipe.constants.handle.NAMED_PIPE
-Pipe.constants.handle.TCP
-Pipe.constants.handle.UDP
+```ts
+Pipe.constants: {
+  state: {
+    CONNECTING: number
+    CONNECTED: number
+    BINDING: number
+    BOUND: number
+    READING: number
+    CLOSING: number
+    READABLE: number
+    WRITABLE: number
+    UNREFED: number
+  }
+  handle: {
+    NAMED_PIPE: number
+    TCP: number
+    UDP: number
+  }
+}
 ```
+
+Object containing internal state constants and handle type constants.
+
+#### `Pipe.createConnection`
+
+```ts
+Pipe.createConnection(path: string, opts?: CreateConnectionOptions, onconnect?: () => void): Pipe
+```
+
+Create a new pipe and connect it to `path`. Shorthand for `new Pipe(options).connect(path, options, onconnect)`.
+
+**Parameters**
+
+| Parameter    | Type                      | Default | Description                                                    |
+| ------------ | ------------------------- | ------- | -------------------------------------------------------------- |
+| `path`       | `string`                  | —       | The path to connect to.                                        |
+| `opts?`      | `CreateConnectionOptions` | —       | Options passed to both the `Pipe` constructor and `connect()`. |
+| `onconnect?` | `() => void`              | —       | Called when the connection is established.                     |
+
+#### `Pipe.createServer(opts?: PipeServerOptions, onconnection?: () => void): PipeServer`
+
+Create a new pipe server. The server extends [`EventEmitter`](https://github.com/holepunchto/bare-events).
+
+**Parameters**
+
+| Parameter       | Type                | Default | Description                                                                                                                                                |
+| --------------- | ------------------- | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `opts?`         | `PipeServerOptions` | —       | Options applied to each incoming pipe; `readBufferSize` defaults to `65536`, `allowHalfOpen` to `true`, `pauseOnConnect` to `false`, and `ipc` to `false`. |
+| `onconnection?` | `() => void`        | —       | Called on each `'connection'` event.                                                                                                                       |
+
+#### `Pipe.pipe(): [read: number, write: number]`
+
+**Returns** `[read: number, write: number]` — A `[read, write]` pair of file descriptors connected to each other.
+
+#### `readyState: 'open' | 'readOnly' | 'writeOnly' | 'opening'`
+
+The current state of the pipe. One of `'open'`, `'readOnly'`, `'writeOnly'`, or `'opening'`.
+
+#### `Pipe.ref(): this`
+
+Ref the pipe, preventing the process from exiting.
+
+#### `Pipe.unref(): this`
+
+Unref the pipe, allowing the process to exit.
+
+#### `write`
+
+```ts
+write(chunk: Buffer | string, encoding: BufferEncoding, handle?: IPCAcceptable, cb?: (err: Error | null) => void): boolean
+```
+
+Write `chunk` to the pipe. If `handle` is given and the pipe was created with `ipc: true`, the handle is transferred to the receiver alongside the chunk. `handle` must implement the [`IPCAcceptable`](#ipc-handle-passing) protocol.
+
+**Parameters**
+
+| Parameter  | Type                           | Default | Description                                                                                                                                                               |
+| ---------- | ------------------------------ | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `chunk`    | `Buffer \| string`             | —       | The data to write.                                                                                                                                                        |
+| `encoding` | `BufferEncoding`               | —       | The encoding of `chunk` when it is a string.                                                                                                                              |
+| `handle?`  | `IPCAcceptable`                | —       | A handle to transfer to the receiver alongside the chunk; requires the pipe to have been created with `ipc: true` and `handle` to implement the `IPCAcceptable` protocol. |
+| `cb?`      | `(err: Error \| null) => void` | —       | Called when the chunk has been processed.                                                                                                                                 |
+
+### PipeServer
+
+#### `new PipeServer(opts?: PipeServerOptions, onconnection?: () => void)`
+
+Overloads:
+
+```ts
+new PipeServer(opts?: PipeServerOptions, onconnection?: () => void)
+new PipeServer(onconnection: () => void)
+```
+
+**Parameters**
+
+| Parameter       | Type                | Default | Description                                                                                                                                                |
+| --------------- | ------------------- | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `opts?`         | `PipeServerOptions` | —       | Options applied to each incoming pipe; `readBufferSize` defaults to `65536`, `allowHalfOpen` to `true`, `pauseOnConnect` to `false`, and `ipc` to `false`. |
+| `onconnection?` | `() => void`        | —       | Called on each `'connection'` event.                                                                                                                       |
+
+#### `address(): string | null`
+
+**Returns** `string | null` — The bound path, or `null` if the server is not listening.
+
+#### `close(onclose?: (err?: Error) => void): this`
+
+Close the server. No new connections will be accepted. The server emits `close` after all existing connections have ended.
+
+**Parameters**
+
+| Parameter  | Type                    | Default | Description                                                                             |
+| ---------- | ----------------------- | ------- | --------------------------------------------------------------------------------------- |
+| `onclose?` | `(err?: Error) => void` | —       | Called once when the server emits `'close'`, after all existing connections have ended. |
+
+#### `listen`
+
+```ts
+listen(path: string, backlog?: number, opts?: PipeServerListenOptions, onlistening?: () => void): this
+```
+
+Start listening for connections on `path`. `backlog` defaults to `511`.
+
+**Parameters**
+
+| Parameter      | Type                      | Default | Description                                                                |
+| -------------- | ------------------------- | ------- | -------------------------------------------------------------------------- |
+| `path`         | `string`                  | —       | The path to listen on.                                                     |
+| `backlog?`     | `number`                  | —       | The maximum length of the queue of pending connections (default `511`).    |
+| `opts?`        | `PipeServerListenOptions` | —       | `path` and `backlog` may be given here instead of as positional arguments. |
+| `onlistening?` | `() => void`              | —       | Called once when the server emits `'listening'`.                           |
+
+**Throws**
+
+- `SERVER_ALREADY_LISTENING` — the server is already listening.
+- `SERVER_IS_CLOSED` — the server has been closed.
+
+#### `listening: boolean`
+
+Whether the server is listening.
+
+#### `PipeServer.ref(): this`
+
+Ref the pipe, preventing the process from exiting.
+
+#### `PipeServer.unref(): this`
+
+Unref the pipe, allowing the process to exit.
+
+### Types
+
+#### `CreateConnectionOptions`
+
+```ts
+interface CreateConnectionOptions {
+  allowHalfOpen?: boolean
+  eagerOpen?: boolean
+  ipc?: boolean
+  readBufferSize?: number
+  path?: string
+}
+```
+
+#### `IPCAcceptable`
+
+```ts
+interface IPCAcceptable {}
+```
+
+#### `PipeEvents`
+
+```ts
+interface PipeEvents {
+  connect: []
+  handle: [type: number]
+  data: [data: unknown]
+  end: []
+  readable: []
+  piping: [dest: Writable]
+  close: []
+  error: [err: Error]
+  drain: []
+  finish: []
+  pipe: [src: Readable]
+}
+```
+
+#### `PipeOptions`
+
+```ts
+interface PipeOptions {
+  allowHalfOpen?: boolean
+  eagerOpen?: boolean
+  ipc?: boolean
+  readBufferSize?: number
+}
+```
+
+#### `PipeConnectOptions`
+
+```ts
+interface PipeConnectOptions {
+  path?: string
+}
+```
+
+#### `PipeServerEvents`
+
+```ts
+interface PipeServerEvents {
+  close: []
+  connection: [pipe: Pipe]
+  error: [err: Error]
+  listening: []
+}
+```
+
+#### `PipeServerOptions`
+
+```ts
+interface PipeServerOptions {
+  allowHalfOpen?: boolean
+  ipc?: boolean
+  pauseOnConnect?: boolean
+  readBufferSize?: number
+}
+```
+
+#### `PipeServerListenOptions`
+
+```ts
+interface PipeServerListenOptions {
+  path?: string
+  backlog?: number
+}
+```
+
+### Classes
+
+#### `PipeError`
+
+```ts
+class PipeError {
+  code: string
+}
+```
+
+## `bare-pipe/constants`
+
+### Constants and variables
+
+#### `constants`
+
+```ts
+constants: {
+  state: {
+    CONNECTING: number
+    CONNECTED: number
+    BINDING: number
+    BOUND: number
+    READING: number
+    CLOSING: number
+    READABLE: number
+    WRITABLE: number
+    UNREFED: number
+  }
+  handle: {
+    NAMED_PIPE: number
+    TCP: number
+    UDP: number
+  }
+}
+```
+
+Object containing internal state constants and handle type constants.
+
+## `bare-pipe/errors`
+
+### Classes
+
+#### `errors.PipeError`
+
+<!-- bare-refgen:api end -->
 
 ## IPC handle passing
 
