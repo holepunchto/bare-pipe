@@ -18,7 +18,7 @@ stdout.write('Hello world!\n')
 
 ## API
 
-See the [full API reference](https://docs.pears.com/reference/bare/modules/bare-pipe).
+See the [`bare-pipe` reference](https://docs.pears.com/reference/bare/modules/bare-pipe).
 
 ## IPC handle passing
 
