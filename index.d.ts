@@ -40,7 +40,9 @@ interface Pipe<M extends PipeEvents = PipeEvents> extends Duplex<M>, IPCAcceptab
   readonly connecting: boolean
   /** Whether the pipe has not yet connected. */
   readonly pending: boolean
-  /** The current state of the pipe. One of `'open'`, `'readOnly'`, `'writeOnly'`, or `'opening'`. */
+  /**
+   * The current state of the pipe. One of `'open'`, `'readOnly'`, `'writeOnly'`, or `'opening'`.
+   */
   readonly readyState: 'open' | 'readOnly' | 'writeOnly' | 'opening'
 
   /**
@@ -57,10 +59,13 @@ interface Pipe<M extends PipeEvents = PipeEvents> extends Duplex<M>, IPCAcceptab
   connect(opts: PipeConnectOptions, onconnect?: () => void): this
 
   /**
-   * Write `chunk` to the pipe. If `handle` is given and the pipe was created with `ipc: true`, the handle is transferred to the receiver alongside the chunk. `handle` must implement the [`IPCAcceptable`](#ipcacceptable) protocol.
+   * Write `chunk` to the pipe. If `handle` is given and the pipe was created with `ipc: true`, the
+   * handle is transferred to the receiver alongside the chunk. `handle` must implement the
+   * [`IPCAcceptable`](#ipcacceptable) protocol.
    * @param chunk - The data to write.
    * @param encoding - The encoding of `chunk` when it is a string.
-   * @param handle - A handle to transfer to the receiver alongside the chunk; requires the pipe to have been created with `ipc: true` and `handle` to implement the `IPCAcceptable` protocol.
+   * @param handle - A handle to transfer to the receiver alongside the chunk; requires the pipe to
+   * have been created with `ipc: true` and `handle` to implement the `IPCAcceptable` protocol.
    * @param cb - Called when the chunk has been processed.
    */
   write(
@@ -74,8 +79,11 @@ interface Pipe<M extends PipeEvents = PipeEvents> extends Duplex<M>, IPCAcceptab
   write(chunk: Buffer | string, cb?: (err: Error | null) => void): boolean
 
   /**
-   * Accept a pending handle into `target`. `target` must implement the [`IPCAcceptable`](#ipcacceptable) protocol. Call this synchronously from the `'handle'` event listener.
-   * @param target - The object to accept the pending handle into; must implement the `IPCAcceptable` protocol. Call synchronously from the `'handle'` event listener.
+   * Accept a pending handle into `target`. `target` must implement the
+   * [`IPCAcceptable`](#ipcacceptable) protocol. Call this synchronously from the `'handle'` event
+   * listener.
+   * @param target - The object to accept the pending handle into; must implement the
+   * `IPCAcceptable` protocol. Call synchronously from the `'handle'` event listener.
    * @returns `target`, for chaining the accepted handle into an expression.
    * @throws {INVALID_IPC_TARGET} `target` does not implement the IPC handle protocol.
    */
@@ -89,9 +97,11 @@ interface Pipe<M extends PipeEvents = PipeEvents> extends Duplex<M>, IPCAcceptab
 
 declare class Pipe<M extends PipeEvents = PipeEvents> extends Duplex<M> {
   /**
-   * Create a new pipe. If `path` is a number, it is treated as a file descriptor to open. If it is a string, it is treated as a path to connect to.
+   * Create a new pipe. If `path` is a number, it is treated as a file descriptor to open. If it is
+   * a string, it is treated as a path to connect to.
    * @param path - A file descriptor to open (number), or a path to connect to (string).
-   * @param opts - Options; `readBufferSize` defaults to `65536`, `allowHalfOpen` and `eagerOpen` to `true`, and `ipc` to `false` (set `ipc: true` to enable handle passing over the pipe).
+   * @param opts - Options; `readBufferSize` defaults to `65536`, `allowHalfOpen` and `eagerOpen` to
+   * `true`, and `ipc` to `false` (set `ipc: true` to enable handle passing over the pipe).
    */
   constructor(path: string | number, opts?: PipeOptions)
   constructor(opts?: PipeOptions)
@@ -99,8 +109,10 @@ declare class Pipe<M extends PipeEvents = PipeEvents> extends Duplex<M> {
 
 interface PipeServerEvents extends EventMap {
   /**
-   * Close the server. No new connections will be accepted. The server emits `close` after all existing connections have ended.
-   * @param onclose - Called once when the server emits `'close'`, after all existing connections have ended.
+   * Close the server. No new connections will be accepted. The server emits `close` after all
+   * existing connections have ended.
+   * @param onclose - Called once when the server emits `'close'`, after all existing connections
+   * have ended.
    */
   close: []
   connection: [pipe: Pipe]
@@ -156,7 +168,8 @@ interface PipeServer<M extends PipeServerEvents = PipeServerEvents> extends Even
 
 declare class PipeServer<M extends PipeServerEvents = PipeServerEvents> extends EventEmitter<M> {
   /**
-   * @param opts - Options applied to each incoming pipe; `readBufferSize` defaults to `65536`, `allowHalfOpen` to `true`, `pauseOnConnect` to `false`, and `ipc` to `false`.
+   * @param opts - Options applied to each incoming pipe; `readBufferSize` defaults to `65536`,
+   * `allowHalfOpen` to `true`, `pauseOnConnect` to `false`, and `ipc` to `false`.
    * @param onconnection - Called on each `'connection'` event.
    */
   constructor(opts?: PipeServerOptions, onconnection?: () => void)
@@ -167,7 +180,8 @@ declare namespace Pipe {
   export interface CreateConnectionOptions extends PipeOptions, PipeConnectOptions {}
 
   /**
-   * Create a new pipe and connect it to `path`. Shorthand for `new Pipe(options).connect(path, options, onconnect)`.
+   * Create a new pipe and connect it to `path`. Shorthand for `new Pipe(options).connect(path,
+   * options, onconnect)`.
    * @param path - The path to connect to.
    * @param opts - Options passed to both the `Pipe` constructor and `connect()`.
    * @param onconnect - Called when the connection is established.
@@ -183,8 +197,10 @@ declare namespace Pipe {
   export function createConnection(opts: CreateConnectionOptions, onconnect?: () => void): Pipe
 
   /**
-   * Create a new pipe server. The server extends [`EventEmitter`](https://github.com/holepunchto/bare-events).
-   * @param opts - Options applied to each incoming pipe; `readBufferSize` defaults to `65536`, `allowHalfOpen` to `true`, `pauseOnConnect` to `false`, and `ipc` to `false`.
+   * Create a new pipe server. The server extends
+   * [`EventEmitter`](https://github.com/holepunchto/bare-events).
+   * @param opts - Options applied to each incoming pipe; `readBufferSize` defaults to `65536`,
+   * `allowHalfOpen` to `true`, `pauseOnConnect` to `false`, and `ipc` to `false`.
    * @param onconnection - Called on each `'connection'` event.
    */
   export function createServer(opts?: PipeServerOptions, onconnection?: () => void): PipeServer
