@@ -13,14 +13,9 @@ interface IPCAcceptable {
 }
 
 interface PipeEvents extends DuplexEvents {
-  /**
-   * Connect the pipe to `path`. `onconnect` is called when the connection is established.
-   * @param path - The path to connect to.
-   * @param opts - Options; `path` may be given here instead of as the first argument.
-   * @param onconnect - Called when the connection is established.
-   * @throws {PIPE_ALREADY_CONNECTED} the pipe is already connecting or connected.
-   */
+  /** Emitted once the pipe has connected. */
   connect: []
+  /** Emitted when an IPC handle is received, carrying the handle type. */
   handle: [type: number]
 }
 
@@ -54,6 +49,13 @@ interface Pipe<M extends PipeEvents = PipeEvents> extends Duplex<M>, IPCAcceptab
   open(fd: number, onconnect: () => void): this
   open(opts: { fd: number }, onconnect?: () => void): this
 
+  /**
+   * Connect the pipe to `path`. `onconnect` is called when the connection is established.
+   * @param path - The path to connect to.
+   * @param opts - Options; `path` may be given here instead of as the first argument.
+   * @param onconnect - Called when the connection is established.
+   * @throws {PIPE_ALREADY_CONNECTED} the pipe is already connecting or connected.
+   */
   connect(path: string, opts?: PipeConnectOptions, onconnect?: () => void): this
   connect(path: string, onconnect: () => void): this
   connect(opts: PipeConnectOptions, onconnect?: () => void): this
@@ -108,16 +110,13 @@ declare class Pipe<M extends PipeEvents = PipeEvents> extends Duplex<M> {
 }
 
 interface PipeServerEvents extends EventMap {
-  /**
-   * Close the server. No new connections will be accepted. The server emits `close` after all
-   * existing connections have ended.
-   * @param onclose - Called once when the server emits `'close'`, after all existing connections
-   * have ended.
-   */
+  /** Emitted once the server has closed and all existing connections have ended. */
   close: []
+  /** Emitted with the accepted pipe each time a client connects. */
   connection: [pipe: Pipe]
+  /** Emitted when the server fails to accept a connection or its handle closes with an error. */
   error: [err: Error]
-  /** Whether the server is listening. */
+  /** Emitted once the server has begun listening. */
   listening: []
 }
 
@@ -134,6 +133,7 @@ interface PipeServerListenOptions {
 }
 
 interface PipeServer<M extends PipeServerEvents = PipeServerEvents> extends EventEmitter<M> {
+  /** Whether the server is listening. */
   readonly listening: boolean
 
   /**
@@ -160,6 +160,12 @@ interface PipeServer<M extends PipeServerEvents = PipeServerEvents> extends Even
   listen(path: string, onlistening: () => void): this
   listen(opts: PipeServerListenOptions): this
 
+  /**
+   * Close the server. No new connections will be accepted. The server emits `close` after all
+   * existing connections have ended.
+   * @param onclose - Called once when the server emits `'close'`, after all existing connections
+   * have ended.
+   */
   close(onclose?: (err?: Error) => void): this
 
   ref(): this
