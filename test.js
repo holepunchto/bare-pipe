@@ -1226,7 +1226,7 @@ test('server, close after a failed bind', async (t) => {
   await new Promise((resolve) => first.close(resolve))
 })
 
-test('server, close releases the path right away', async (t) => {
+test('server, close releases the path right away', { skip: isWindows }, async (t) => {
   t.plan(4)
 
   const n = name()
