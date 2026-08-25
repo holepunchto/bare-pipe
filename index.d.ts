@@ -28,18 +28,22 @@ interface PipeConnectOptions {
   path?: string
 }
 
+interface PipeOpenOptions {
+  fd?: number
+}
+
 interface Pipe<M extends PipeEvents = PipeEvents> extends Duplex<M>, IPCAcceptable {
   readonly connecting: boolean
   readonly pending: boolean
   readonly readyState: 'open' | 'readOnly' | 'writeOnly' | 'opening'
 
-  open(fd: number, opts?: { fd?: number }, onconnect?: () => void): this
-  open(fd: number, onconnect: () => void): this
-  open(opts: { fd: number }, onconnect?: () => void): this
-
   connect(path: string, opts?: PipeConnectOptions, onconnect?: () => void): this
   connect(path: string, onconnect: () => void): this
   connect(opts: PipeConnectOptions, onconnect?: () => void): this
+
+  open(fd: number, opts?: PipeOpenOptions, onconnect?: () => void): this
+  open(fd: number, onconnect: () => void): this
+  open(opts: PipeOpenOptions & { fd: number }, onconnect?: () => void): this
 
   write(
     chunk: Buffer | string,
@@ -77,12 +81,13 @@ interface PipeServerOptions {
 }
 
 interface PipeServerListenOptions {
-  path?: string
   backlog?: number
+  path?: string
 }
 
 interface PipeServer<M extends PipeServerEvents = PipeServerEvents> extends EventEmitter<M> {
   readonly listening: boolean
+  readonly closing: boolean
 
   address(): string | null
 
@@ -94,9 +99,9 @@ interface PipeServer<M extends PipeServerEvents = PipeServerEvents> extends Even
   ): this
   listen(path: string, backlog: number, onlistening: () => void): this
   listen(path: string, onlistening: () => void): this
-  listen(opts: PipeServerListenOptions): this
+  listen(opts: PipeServerListenOptions, onlistening?: () => void): this
 
-  close(onclose?: (err?: Error) => void): this
+  close(onclose?: () => void): this
 
   ref(): this
   unref(): this
@@ -122,22 +127,25 @@ declare namespace Pipe {
 
   export function createServer(opts?: PipeServerOptions, onconnection?: () => void): PipeServer
 
+  export function createServer(onconnection: () => void): PipeServer
+
   export function pipe(): [read: number, write: number]
 
   export {
-    type IPCAcceptable,
-    type PipeEvents,
-    type PipeOptions,
     Pipe,
-    type PipeConnectOptions,
-    type PipeServerEvents,
-    type PipeServerOptions,
-    type PipeServerListenOptions,
     type PipeServer,
     PipeServer as Server,
+    constants,
     type PipeError,
     PipeError as errors,
-    constants
+    type IPCAcceptable,
+    type PipeConnectOptions,
+    type PipeEvents,
+    type PipeOpenOptions,
+    type PipeOptions,
+    type PipeServerEvents,
+    type PipeServerListenOptions,
+    type PipeServerOptions
   }
 }
 
