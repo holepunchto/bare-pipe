@@ -20,7 +20,7 @@ stdout.write('Hello world!\n')
 
 #### `const pipe = new Pipe([path][, options])`
 
-Create a new pipe. If `path` is a number, it is treated as a file descriptor to open. If it is a string, it is treated as a path to connect to.
+Create a new pipe. `pipe` extends <https://github.com/holepunchto/bare-stream>. If `path` is a number, it is treated as a file descriptor to open. If it is a string, it is treated as a path to connect to.
 
 Options include:
 
@@ -35,6 +35,10 @@ options = {
 
 Set `ipc: true` to enable handle passing over the pipe. See [IPC handle passing](#ipc-handle-passing).
 
+#### `const pipe = Pipe.createConnection(path[, options][, onconnect])`
+
+Create a new pipe and connect it to `path`. Shorthand for `new Pipe(options).connect(path, options, onconnect)`.
+
 #### `pipe.connecting`
 
 Whether the pipe is currently connecting.
@@ -47,13 +51,17 @@ Whether the pipe has not yet connected.
 
 The current state of the pipe. One of `'open'`, `'readOnly'`, `'writeOnly'`, or `'opening'`.
 
-#### `pipe.open(fd[, options][, onconnect])`
-
-Open the pipe on the given file descriptor.
-
 #### `pipe.connect(path[, options][, onconnect])`
 
 Connect the pipe to `path`. `onconnect` is called when the connection is established.
+
+A path may be at most `Pipe.constants.path.MAX_LENGTH` bytes long.
+
+#### `pipe.open(fd[, options][, onconnect])`
+
+Open the pipe on the given file descriptor, such as one obtained from `Pipe.pipe()` or received over IPC. `onconnect` is called when the pipe is ready.
+
+A descriptor that is only readable or only writable, such as one half of a pair, leaves the corresponding half of the pipe ended right away.
 
 #### `pipe.write(chunk[, encoding][, handle][, cb])`
 
@@ -79,7 +87,7 @@ Emitted when the pipe connects.
 
 Emitted on the receiving side for each pending handle when the pipe was created with `ipc: true`. The argument is the handle type, one of `Pipe.constants.handle.NAMED_PIPE`, `TCP`, or `UDP`. The listener must call `pipe.accept(target)` synchronously to claim the handle. Multiple handles arriving in a single read are emitted in arrival order before the corresponding `'data'` event.
 
-#### `const server = Pipe.createServer([options][, onconnection])`
+#### `const server = new Pipe.Server([options][, onconnection])`
 
 Create a new pipe server. `server` extends <https://github.com/holepunchto/bare-events>.
 
@@ -94,11 +102,19 @@ options = {
 }
 ```
 
-These options are applied to each incoming pipe.
+These options are applied to each incoming pipe. If `onconnection` is provided, it is added as a listener for the `connection` event.
+
+#### `const server = Pipe.createServer([options][, onconnection])`
+
+Convenience function equivalent to `new Pipe.Server(options, onconnection)`.
 
 #### `server.listening`
 
 Whether the server is listening.
+
+#### `server.closing`
+
+Whether the server is closing.
 
 #### `server.address()`
 
@@ -110,7 +126,11 @@ Start listening for connections on `path`. `backlog` defaults to `511`.
 
 #### `server.close([onclose])`
 
-Close the server. No new connections will be accepted. The server emits `close` after all existing connections have ended.
+Close the server, releasing the path right away so that no new connections are accepted. Existing connections are left open and the server emits `close` after all of them have ended. `server.listening` is `false` and `server.address()` returns `null` as soon as `close()` is called.
+
+Once the server has fully closed, `server.closing` returns to `false` and the server may `listen()` again, as in Node.
+
+A connection accepted with `allowHalfOpen: true` stays open after the peer closes its end: the peer's `FIN` ends only the readable half, and the writable half remains open until the local side ends it. Such a connection has not "ended", so it keeps the server open and `close` will not fire until you end it (for example `pipe.on('end', () => pipe.end())`). This matches Node's `net`, which also waits for half-open connections to end.
 
 #### `server.ref()`
 
@@ -136,23 +156,25 @@ Emitted when the server closes.
 
 Emitted when an error occurs.
 
-#### `const pipe = Pipe.createConnection(path[, options][, onconnect])`
+#### `const [read, write] = Pipe.pipe()`
 
-Create a new pipe and connect it to `path`. Shorthand for `new Pipe(options).connect(path, options, onconnect)`.
-
-#### `Pipe.pipe()`
-
-Returns `[read, write]`, a pair of file descriptors connected to each other.
+Create a pair of file descriptors connected to each other. Use `pipe.open(fd)` to adopt them.
 
 #### `Pipe.constants`
 
-Object containing internal state constants and handle type constants:
+Object containing internal state constants and handle types, as well as `path.MAX_LENGTH`, the maximum length in bytes of a path accepted by `pipe.connect()` and `server.listen()`:
 
 ```js
+Pipe.constants.path.MAX_LENGTH
+
 Pipe.constants.handle.NAMED_PIPE
 Pipe.constants.handle.TCP
 Pipe.constants.handle.UDP
 ```
+
+#### `Pipe.errors`
+
+Class for pipe specific errors, with a static factory per error code.
 
 ## IPC handle passing
 
@@ -205,7 +227,7 @@ class MyTarget {
 - `Symbol.for('bare.ipc.handle')` (required): A getter returning the underlying libuv handle (typically an `ArrayBuffer` whose first bytes are a `uv_stream_t` / `uv_udp_t`).
 - `Symbol.for('bare.ipc.accept')` (optional): A method invoked synchronously after the handle has been transferred. Use it to initialize per-handle state (e.g. address lookup).
 
-`Pipe`, `bare-tcp`'s `Socket`, and any compatible package implement this protocol natively, so a `bare-tcp` socket can be passed and received via `bare-pipe` IPC without any glue code.
+`Pipe`, `bare-tcp`'s `Socket`, `bare-dgram`'s `Socket`, and any compatible package implement this protocol natively, so a `bare-tcp` socket can be passed and received via `bare-pipe` IPC without any glue code.
 
 TypeScript users can import the `IPCAcceptable` interface from `bare-pipe` to type the protocol.
 
