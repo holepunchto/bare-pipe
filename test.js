@@ -706,17 +706,19 @@ test('socket, allow half open false', async (t) => {
   await new Promise((resolve) => server.close(resolve))
 })
 
-test('socket, read error is forwarded as a stream error', { skip: isWindows }, async (t) => {
+test('socket, open error is forwarded as a stream error', { skip: isWindows }, async (t) => {
   t.plan(1)
 
-  // A directory can be opened as a pipe but cannot be read from.
+  // A directory can't be watched by the event loop and so can't back a pipe.
   const fd = fs.openSync('/tmp', 'r')
 
   const socket = new Pipe(fd)
-  socket.on('error', (err) => t.is(err.code, 'EISDIR'))
+  socket.on('error', (err) => t.is(err.code, 'EINVAL'))
   socket.resume()
 
   await new Promise((resolve) => socket.on('close', resolve))
+
+  fs.closeSync(fd)
 })
 
 test('socket, accept a target without the ipc handle protocol', async (t) => {

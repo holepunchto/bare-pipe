@@ -664,6 +664,15 @@ bare_pipe_open(js_env_t *env, js_callback_info_t *info) {
   err = js_get_value_int32(env, argv[1], &fd);
   assert(err == 0);
 
+  uv_handle_type type = uv_guess_handle((uv_file) fd);
+
+  if (type == UV_FILE || type == UV_UNKNOWN_HANDLE) {
+    err = js_throw_error(env, uv_err_name(UV_EINVAL), uv_strerror(UV_EINVAL));
+    assert(err == 0);
+
+    return NULL;
+  }
+
   err = uv_pipe_open(&pipe->handle, (uv_file) fd);
 
   if (err < 0) {
