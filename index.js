@@ -579,6 +579,7 @@ exports.Server = class PipeServer extends EventEmitter {
     validateInteger(backlog, 'Backlog', 0, 0x7fffffff)
 
     this._state |= constants.state.BINDING
+    this._state &= ~constants.state.CLOSED
 
     this._handle = binding.init(
       empty,
@@ -630,7 +631,7 @@ exports.Server = class PipeServer extends EventEmitter {
 
     if (this._state & constants.state.CLOSING) return this
     this._state |= constants.state.CLOSING
-    this._state &= ~constants.state.BOUND
+    this._state &= ~(constants.state.BINDING | constants.state.BOUND)
 
     if (this._handle !== null) binding.close(this._handle)
     else this._closeMaybe()
@@ -660,6 +661,7 @@ exports.Server = class PipeServer extends EventEmitter {
     if (this._handle !== null || this._connections.size > 0) return
 
     this._state |= constants.state.CLOSED
+    this._state &= ~constants.state.CLOSING
 
     queueMicrotask(() => this.emit('close'))
   }

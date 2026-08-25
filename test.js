@@ -865,7 +865,7 @@ test('server, closing', async (t) => {
 
   await new Promise((resolve) => server.on('close', resolve))
 
-  t.ok(server.closing, 'still closing once closed')
+  t.absent(server.closing, 'no longer closing once closed')
 })
 
 test('server, listening is false after close', async (t) => {
@@ -978,13 +978,26 @@ test('server, listen while already listening', async (t) => {
 })
 
 test('server, listen after close', async (t) => {
-  t.plan(1)
+  t.plan(3)
 
   const server = Pipe.createServer()
+  server.listen(name())
 
+  await waitForListening(server)
   await new Promise((resolve) => server.close(resolve))
 
-  t.exception(() => server.listen(name()), /SERVER_IS_CLOSED/)
+  t.absent(server.closing, 'no longer closing once closed')
+
+  // A fully closed server is reusable, as in Node.
+  const n = name()
+  server.listen(n)
+
+  await waitForListening(server)
+
+  t.ok(server.listening, 'listening again')
+  t.is(server.address(), n, 'bound to the new path')
+
+  await new Promise((resolve) => server.close(resolve))
 })
 
 test('server, listen while closing', async (t) => {
@@ -998,6 +1011,30 @@ test('server, listen while closing', async (t) => {
   server.close()
 
   t.exception(() => server.listen(name()), /SERVER_IS_CLOSED/)
+
+  await new Promise((resolve) => server.on('close', resolve))
+})
+
+test('server, listen while connections drain', async (t) => {
+  t.plan(2)
+
+  const n = name()
+
+  const server = Pipe.createServer()
+  server.listen(n)
+
+  await waitForListening(server)
+
+  const client = new Pipe(n)
+  const pipe = await new Promise((resolve) => server.on('connection', resolve))
+
+  server.close()
+
+  t.ok(server.closing, 'closing while the connection drains')
+  t.exception(() => server.listen(name()), /SERVER_IS_CLOSED/)
+
+  pipe.destroy()
+  client.destroy()
 
   await new Promise((resolve) => server.on('close', resolve))
 })
@@ -1117,6 +1154,28 @@ test('server, close after closing', async (t) => {
 
   t.pass('close called back again once closed')
   t.is(server.listenerCount('close'), 0, 'no close listeners left behind')
+})
+
+test('server, close after listening again', async (t) => {
+  t.plan(2)
+
+  const server = Pipe.createServer()
+  server.listen(name())
+
+  await waitForListening(server)
+  await new Promise((resolve) => server.close(resolve))
+
+  server.listen(name())
+
+  await waitForListening(server)
+
+  let closed = 0
+  server.on('close', () => closed++)
+
+  await new Promise((resolve) => server.close(resolve))
+
+  t.is(closed, 1, 'the second close closed the server')
+  t.absent(server.listening, 'not listening')
 })
 
 test('server, close callbacks while closing', async (t) => {
