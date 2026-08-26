@@ -443,8 +443,9 @@ test('socket, connect after a failed connect', async (t) => {
 test('socket, connect while a failed connect is still settling', async (t) => {
   t.plan(1)
 
-  const socket = new Pipe('/tmp/' + 'a'.repeat(512) + '.sock')
+  const socket = new Pipe()
   socket.on('error', () => {})
+  socket.connect('')
 
   // The destroy is deferred, so the pipe is still around but must not accept
   // another connect that the deferred destroy would tear down again.
