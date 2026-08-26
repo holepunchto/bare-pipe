@@ -1795,7 +1795,7 @@ test('ipc, multiple pending handles drain in order', { skip: isWindows }, async 
 })
 
 test('ipc, each handle rides with its own message', { skip: isWindows }, async (t) => {
-  t.plan(4)
+  t.plan(5)
 
   const echo = name()
 
@@ -1816,9 +1816,11 @@ test('ipc, each handle rides with its own message', { skip: isWindows }, async (
   const types = []
   const chunks = []
 
-  // The data seen so far when each handle arrived. A handle rides along with a
-  // single message and ancillary data forces a read boundary, so the prefix
-  // pins down which message carried it.
+  // The data seen so far when each handle arrived. Ancillary data forces a read
+  // boundary, but where the boundary falls is platform specific: Linux ends the
+  // read after the message that carries the handle, coalescing everything
+  // written before it, whereas macOS ends the read before it. The prefix
+  // therefore only bounds which message carried the handle from above.
   const prefixes = []
 
   right
@@ -1851,8 +1853,14 @@ test('ipc, each handle rides with its own message', { skip: isWindows }, async (
     [Pipe.constants.handle.NAMED_PIPE, Pipe.constants.handle.TCP],
     'received both handles in order'
   )
-  t.is(prefixes[0], 'one', 'the pipe arrived with the second message')
-  t.is(prefixes[1], 'onetwothree', 'the socket arrived with the fourth message')
+  t.ok('onetwo'.startsWith(prefixes[0]), 'the pipe arrived no later than the second message')
+  t.ok(
+    'onetwothreefour'.startsWith(prefixes[1]),
+    'the socket arrived no later than the fourth message'
+  )
+  // Two handles on the same message would be surfaced from the same read, and
+  // so would see the same prefix.
+  t.not(prefixes[0], prefixes[1], 'the handles arrived on separate reads')
   t.alike(Buffer.concat(chunks), Buffer.from('onetwothreefourfive'), 'received all data in order')
 
   peer.destroy()
