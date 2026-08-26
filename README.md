@@ -177,6 +177,8 @@ Emitted when an error occurs.
 
 Create a pair of file descriptors connected to each other, the first readable and the second writable. Use `pipe.open(fd)` to adopt them. The pair is a unidirectional pipe, so it carries data but not handles.
 
+A descriptor is closed along with the pipe that adopted it, so a descriptor that is never adopted has to be closed by hand, such as with `bare-fs`.
+
 #### `Pipe.constants`
 
 Object containing internal state constants and handle types, as well as `path.MAX_LENGTH`, the maximum length in bytes of a path accepted by `pipe.connect()` and `server.listen()`:

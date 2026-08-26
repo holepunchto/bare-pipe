@@ -1090,12 +1090,18 @@ test('server, listen with options', async (t) => {
 })
 
 test('server, listen with an invalid backlog', async (t) => {
-  t.plan(3)
+  t.plan(6)
 
   const server = Pipe.createServer()
 
   t.exception(() => server.listen(name(), 'abc'), /INVALID_ARGUMENT/)
   t.exception(() => server.listen({ path: name(), backlog: 'abc' }), /INVALID_ARGUMENT/)
+
+  // A falsy backlog is rejected rather than quietly replaced by the default,
+  // which only stands in for an absent one.
+  t.exception(() => server.listen({ path: name(), backlog: NaN }), /INVALID_ARGUMENT/)
+  t.exception(() => server.listen({ path: name(), backlog: false }), /INVALID_ARGUMENT/)
+  t.exception(() => server.listen({ path: name(), backlog: '' }), /INVALID_ARGUMENT/)
 
   // A rejected argument must not leave the server wedged.
   const n = name()
@@ -1707,6 +1713,76 @@ test('ipc, multiple pending handles drain in order', { skip: isWindows }, async 
   peerA.on('connect', tryWrite)
   peerT.on('connect', tryWrite)
   peerB.on('connect', tryWrite)
+})
+
+test('ipc, each handle rides with its own message', { skip: isWindows }, async (t) => {
+  t.plan(4)
+
+  const echo = name()
+
+  const server = Pipe.createServer((peer) => peer.pipe(peer))
+  server.listen(echo)
+
+  const tcpServer = tcp.createServer((sock) => sock.pipe(sock))
+  tcpServer.listen()
+
+  await waitForListening(server)
+  await waitForListening(tcpServer)
+
+  const [a, b] = tcp.socketpair()
+
+  const left = new Pipe(a, { ipc: true })
+  const right = new Pipe(b, { ipc: true })
+
+  const types = []
+  const chunks = []
+
+  // The data seen so far when each handle arrived. A handle rides along with a
+  // single message and ancillary data forces a read boundary, so the prefix
+  // pins down which message carried it.
+  const prefixes = []
+
+  right
+    .on('handle', (type) => {
+      types.push(type)
+      prefixes.push(Buffer.concat(chunks).toString())
+
+      right.accept(type === Pipe.constants.handle.TCP ? new tcp.Socket() : new Pipe()).destroy()
+    })
+    .on('data', (data) => chunks.push(data))
+
+  const peer = new Pipe(echo)
+  const peerTcp = tcp.createConnection(tcpServer.address().port)
+
+  await new Promise((resolve) => peer.on('connect', resolve))
+  await new Promise((resolve) => peerTcp.on('connect', resolve))
+
+  // Queued in one tick, so a single batch is split into segments around the
+  // two handles.
+  left.write(Buffer.from('one'))
+  left.write(Buffer.from('two'), peer)
+  left.write(Buffer.from('three'))
+  left.write(Buffer.from('four'), peerTcp)
+  left.write(Buffer.from('five'))
+
+  await new Promise((resolve) => setTimeout(resolve, 100))
+
+  t.alike(
+    types,
+    [Pipe.constants.handle.NAMED_PIPE, Pipe.constants.handle.TCP],
+    'received both handles in order'
+  )
+  t.is(prefixes[0], 'one', 'the pipe arrived with the second message')
+  t.is(prefixes[1], 'onetwothree', 'the socket arrived with the fourth message')
+  t.alike(Buffer.concat(chunks), Buffer.from('onetwothreefourfive'), 'received all data in order')
+
+  peer.destroy()
+  peerTcp.destroy()
+  left.destroy()
+  right.destroy()
+
+  await new Promise((resolve) => server.close(resolve))
+  await new Promise((resolve) => tcpServer.close(resolve))
 })
 
 test('ipc, handle and data writes in the same batch', { skip: isWindows }, async (t) => {

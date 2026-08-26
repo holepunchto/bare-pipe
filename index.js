@@ -589,10 +589,10 @@ exports.Server = class PipeServer extends EventEmitter {
     if (typeof path === 'object' && path !== null) {
       opts = path
       path = opts.path
-      backlog = opts.backlog || 511
+      backlog = defaultTo(opts.backlog, 511)
     }
 
-    if (!backlog) backlog = 511
+    if (backlog === null || backlog === 0) backlog = 511
 
     validatePath(path)
     validateInteger(backlog, 'Backlog', 0, 0x7fffffff)
@@ -815,6 +815,10 @@ function validateInteger(value, name, min, max) {
       `${name} must be an integer between ${min} and ${max}, got ${value}`
     )
   }
+}
+
+function defaultTo(value, fallback) {
+  return value === undefined || value === null ? fallback : value
 }
 
 function noop() {}
