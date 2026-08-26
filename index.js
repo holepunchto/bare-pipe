@@ -26,11 +26,11 @@ module.exports = exports = class Pipe extends Duplex {
 
     validateInteger(readBufferSize, 'Read buffer size', 1, 0x7fffffff)
 
-    super({ eagerOpen })
+    super({ eagerOpen: !!eagerOpen })
 
     this._state = 0
 
-    this._allowHalfOpen = allowHalfOpen
+    this._allowHalfOpen = !!allowHalfOpen
     this._ipc = !!ipc
 
     this._fd = -1
@@ -131,14 +131,7 @@ module.exports = exports = class Pipe extends Duplex {
 
       if (onconnect) this.once('connect', onconnect)
     } catch (err) {
-      this._state &= ~constants.state.CONNECTING
-
-      this._error = err
-
-      queueMicrotask(() => {
-        if (this._pendingOpen) this._continueOpen(err)
-        else this.destroy(err)
-      })
+      queueMicrotask(() => this._failConnect(err))
     }
 
     return this
@@ -446,12 +439,18 @@ module.exports = exports = class Pipe extends Duplex {
     cb(null)
   }
 
+  _failConnect(err) {
+    if (this._state & constants.state.CLOSING) return
+
+    this._state &= ~constants.state.CONNECTING
+
+    if (this._pendingOpen) this._continueOpen(err)
+    else this.destroy(err)
+  }
+
   _onconnect(err) {
     if (err) {
-      this._state &= ~constants.state.CONNECTING
-
-      if (this._pendingOpen) this._continueOpen(err)
-      else this.destroy(err)
+      this._failConnect(err)
       return
     }
 
@@ -552,8 +551,8 @@ exports.Server = class PipeServer extends EventEmitter {
     this._state = 0
 
     this._readBufferSize = readBufferSize
-    this._allowHalfOpen = allowHalfOpen
-    this._pauseOnConnect = pauseOnConnect
+    this._allowHalfOpen = !!allowHalfOpen
+    this._pauseOnConnect = !!pauseOnConnect
     this._ipc = !!ipc
 
     this._path = null

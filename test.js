@@ -276,17 +276,18 @@ test('socket, readyState once an unconnected pipe is destroyed', async (t) => {
 test('socket, readyState after a failed connect', async (t) => {
   t.plan(2)
 
-  // An empty path is rejected by the underlying handle right away, so the
-  // connect has already failed by the time the next statement runs.
+  // An empty path is rejected by the underlying handle right away, but the
+  // failure is still reported asynchronously, so the pipe stays connecting
+  // until it settles, as in Node.
   const socket = new Pipe()
   socket.on('error', () => {})
   socket.connect('')
 
-  t.is(socket.readyState, 'closed', 'closed as soon as the connect has failed')
+  t.is(socket.readyState, 'opening', 'still opening while the failure settles')
 
   await new Promise((resolve) => socket.on('close', resolve))
 
-  t.is(socket.readyState, 'closed', 'still closed once closed')
+  t.is(socket.readyState, 'closed', 'closed once the connect has failed')
 })
 
 test('socket, readyState while a connect is in flight', async (t) => {
@@ -487,15 +488,20 @@ test('socket, connect after a failed connect', async (t) => {
 })
 
 test('socket, connect while a failed connect is still settling', async (t) => {
-  t.plan(1)
+  t.plan(2)
 
+  // An empty path is the one input the underlying handle rejects synchronously
+  // on every platform, though the failure is only reported once it settles.
   const socket = new Pipe()
   socket.on('error', () => {})
   socket.connect('')
 
-  // The destroy is deferred, so the pipe is still around but must not accept
-  // another connect that the deferred destroy would tear down again.
-  t.exception(() => socket.connect(name()), /PIPE_IS_CLOSED/)
+  // The pipe is still connecting until the failure settles, as in Node, so
+  // another connect is rejected as a duplicate rather than as a closed pipe.
+  // Either way it must not be accepted, as the deferred failure would tear it
+  // down again.
+  t.ok(socket.connecting, 'still connecting while the failure settles')
+  t.exception(() => socket.connect(name()), /PIPE_ALREADY_CONNECTED/)
 
   await new Promise((resolve) => socket.on('close', resolve))
 })
@@ -858,6 +864,26 @@ test('socket, allow half open false', async (t) => {
     .on('end', () => t.pass('client ended'))
     .on('finish', () => t.pass('client finished without being ended'))
     .resume()
+
+  await new Promise((resolve) => client.on('close', resolve))
+
+  await new Promise((resolve) => server.close(resolve))
+})
+
+test('socket, allow half open is coerced to a boolean', async (t) => {
+  t.plan(1)
+
+  const n = name()
+
+  const server = Pipe.createServer((pipe) => pipe.end('hello client'))
+  server.listen(n)
+
+  await waitForListening(server)
+
+  // A falsy value disables half open, as in Node, so the peer ending also ends
+  // the writable half.
+  const client = new Pipe(n, { allowHalfOpen: 0 })
+  client.on('finish', () => t.pass('client finished without being ended')).resume()
 
   await new Promise((resolve) => client.on('close', resolve))
 

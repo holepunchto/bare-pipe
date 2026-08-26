@@ -68,7 +68,7 @@ Connect the pipe to `path`. `onconnect` is called when the connection is establi
 
 A path may be at most `Pipe.constants.path.MAX_LENGTH` bytes long, or `INVALID_PATH` is thrown. That is only the upper bound this module imposes; the platform limit is much lower, around 104 bytes on macOS and 108 bytes on Linux for a Unix domain socket, so a shorter path may still be rejected by the operating system with `EINVAL` or `ENAMETOOLONG`.
 
-A failed connect destroys the pipe, so the pipe cannot be reused. Both `pipe.connect()` and `pipe.open()` throw `PIPE_IS_CLOSED` once a connect or open has failed, even before the resulting `error` event has been emitted.
+A failed connect destroys the pipe, so the pipe cannot be reused. The pipe stays connecting until the failure settles, as in Node, so `pipe.connect()` throws `PIPE_ALREADY_CONNECTED` until then and `PIPE_IS_CLOSED` from then on. A failed `pipe.open()` takes effect right away, so both `pipe.connect()` and `pipe.open()` throw `PIPE_IS_CLOSED` immediately, even before the resulting `error` event has been emitted.
 
 #### `pipe.open(fd[, options][, onconnect])`
 
