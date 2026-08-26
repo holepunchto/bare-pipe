@@ -49,13 +49,15 @@ Whether the pipe has not yet connected.
 
 #### `pipe.readyState`
 
-The current state of the pipe. One of `'open'`, `'readOnly'`, `'writeOnly'`, or `'opening'`.
+The current state of the pipe. One of `'opening'` before it has connected, `'open'` while both halves are usable, `'readOnly'` or `'writeOnly'` once the corresponding half has ended, and `'closed'` once neither half is usable, as in Node.
 
 #### `pipe.connect(path[, options][, onconnect])`
 
 Connect the pipe to `path`. `onconnect` is called when the connection is established.
 
 A path may be at most `Pipe.constants.path.MAX_LENGTH` bytes long.
+
+A failed connect destroys the pipe, so the pipe cannot be reused. Both `pipe.connect()` and `pipe.open()` throw `PIPE_IS_CLOSED` once a connect or open has failed, even before the resulting `error` event has been emitted.
 
 #### `pipe.open(fd[, options][, onconnect])`
 
@@ -158,7 +160,7 @@ Emitted when an error occurs.
 
 #### `const [read, write] = Pipe.pipe()`
 
-Create a pair of file descriptors connected to each other. Use `pipe.open(fd)` to adopt them.
+Create a pair of file descriptors connected to each other, the first readable and the second writable. Use `pipe.open(fd)` to adopt them. The pair is a unidirectional pipe, so it carries data but not handles.
 
 #### `Pipe.constants`
 
@@ -179,6 +181,8 @@ Class for pipe specific errors, with a static factory per error code.
 ## IPC handle passing
 
 Pipes created with `ipc: true` can transfer libuv handles (named pipes, TCP sockets, UDP sockets) to a peer alongside the byte stream. The peer receives a `'handle'` event for each transferred handle, in arrival order, before the corresponding `'data'` event.
+
+Handle passing needs a bidirectional socket on both ends, so the descriptors must come from a socket pair, such as `bare-tcp`'s `socketpair()`. The descriptors from `Pipe.pipe()` are a unidirectional pipe and cannot carry handles.
 
 Sender:
 

@@ -35,7 +35,7 @@ interface PipeOpenOptions {
 interface Pipe<M extends PipeEvents = PipeEvents> extends Duplex<M>, IPCAcceptable {
   readonly connecting: boolean
   readonly pending: boolean
-  readonly readyState: 'open' | 'readOnly' | 'writeOnly' | 'opening'
+  readonly readyState: 'opening' | 'open' | 'readOnly' | 'writeOnly' | 'closed'
 
   connect(path: string, opts?: PipeConnectOptions, onconnect?: () => void): this
   connect(path: string, onconnect: () => void): this
@@ -108,8 +108,8 @@ interface PipeServer<M extends PipeServerEvents = PipeServerEvents> extends Even
 }
 
 declare class PipeServer<M extends PipeServerEvents = PipeServerEvents> extends EventEmitter<M> {
-  constructor(opts?: PipeServerOptions, onconnection?: () => void)
-  constructor(onconnection: () => void)
+  constructor(opts?: PipeServerOptions, onconnection?: (pipe: Pipe) => void)
+  constructor(onconnection: (pipe: Pipe) => void)
 }
 
 declare namespace Pipe {
@@ -125,9 +125,12 @@ declare namespace Pipe {
 
   export function createConnection(opts: CreateConnectionOptions, onconnect?: () => void): Pipe
 
-  export function createServer(opts?: PipeServerOptions, onconnection?: () => void): PipeServer
+  export function createServer(
+    opts?: PipeServerOptions,
+    onconnection?: (pipe: Pipe) => void
+  ): PipeServer
 
-  export function createServer(onconnection: () => void): PipeServer
+  export function createServer(onconnection: (pipe: Pipe) => void): PipeServer
 
   export function pipe(): [read: number, write: number]
 

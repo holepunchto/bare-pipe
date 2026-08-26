@@ -199,6 +199,63 @@ test('socket, readyState and pending while connected', async (t) => {
   await new Promise((resolve) => server.close(resolve))
 })
 
+test('socket, readyState as the halves end', async (t) => {
+  t.plan(4)
+
+  const n = name()
+
+  const server = Pipe.createServer((pipe) => {
+    pipe.resume().on('end', () => pipe.end())
+  })
+  server.listen(n)
+
+  await waitForListening(server)
+
+  const client = new Pipe(n)
+
+  t.is(client.readyState, 'opening', 'opening while connecting')
+
+  await new Promise((resolve) => client.on('connect', resolve))
+
+  t.is(client.readyState, 'open', 'open once connected')
+
+  client.end()
+
+  await new Promise((resolve) => client.on('finish', resolve))
+
+  t.is(client.readyState, 'readOnly', 'read only once the writable half has ended')
+
+  client.destroy()
+
+  await new Promise((resolve) => client.on('close', resolve))
+
+  t.is(client.readyState, 'closed', 'closed once destroyed')
+
+  await new Promise((resolve) => server.close(resolve))
+})
+
+test('socket, readyState after the peer ends', async (t) => {
+  t.plan(1)
+
+  const n = name()
+
+  const server = Pipe.createServer((pipe) => pipe.end())
+  server.listen(n)
+
+  await waitForListening(server)
+
+  const client = new Pipe(n)
+  client.resume()
+
+  await new Promise((resolve) => client.on('end', resolve))
+
+  t.is(client.readyState, 'writeOnly', 'write only once the peer has ended')
+
+  client.destroy()
+
+  await new Promise((resolve) => server.close(resolve))
+})
+
 test('socket, connecting is false after failed connect', async (t) => {
   const socket = new Pipe()
   socket.on('error', () => {})
@@ -383,6 +440,30 @@ test('socket, connect after a failed connect', async (t) => {
   t.exception(() => socket.connect(name()), /PIPE_IS_CLOSED/)
 })
 
+test('socket, connect while a failed connect is still settling', async (t) => {
+  t.plan(1)
+
+  const socket = new Pipe('/tmp/' + 'a'.repeat(512) + '.sock')
+  socket.on('error', () => {})
+
+  // The destroy is deferred, so the pipe is still around but must not accept
+  // another connect that the deferred destroy would tear down again.
+  t.exception(() => socket.connect(name()), /PIPE_IS_CLOSED/)
+
+  await new Promise((resolve) => socket.on('close', resolve))
+})
+
+test('socket, open while a failed open is still settling', async (t) => {
+  t.plan(1)
+
+  const socket = new Pipe(1 << 24)
+  socket.on('error', () => {})
+
+  t.exception(() => socket.open(Pipe.pipe()[0]), /PIPE_IS_CLOSED/)
+
+  await new Promise((resolve) => socket.on('close', resolve))
+})
+
 test('socket, connect after being destroyed', async (t) => {
   t.plan(2)
 
@@ -504,6 +585,18 @@ test('socket, open with an invalid fd type', async (t) => {
   t.exception(() => socket.open({ fd: '3' }), /INVALID_FD/)
   t.exception(() => socket.open(-1), /INVALID_FD/)
   t.exception(() => socket.open(1.5), /INVALID_FD/)
+
+  socket.destroy()
+
+  await new Promise((resolve) => socket.on('close', resolve))
+})
+
+test('socket, open while already connected', async (t) => {
+  t.plan(1)
+
+  const socket = new Pipe(Pipe.pipe()[0])
+
+  t.exception(() => socket.open(Pipe.pipe()[0]), /PIPE_ALREADY_CONNECTED/)
 
   socket.destroy()
 
@@ -652,6 +745,18 @@ test('socket, write with an invalid handle', async (t) => {
   socket.destroy()
 
   await new Promise((resolve) => socket.on('close', resolve))
+})
+
+test('socket, write with an invalid handle after destroy', async (t) => {
+  t.plan(1)
+
+  const socket = new Pipe()
+  socket.destroy()
+
+  await new Promise((resolve) => socket.on('close', resolve))
+
+  // A destroyed pipe no longer queues handles, but the target is still checked.
+  t.exception(() => socket.write(Buffer.from('here'), {}), /INVALID_IPC_TARGET/)
 })
 
 test('socket, backpressure', async (t) => {
@@ -951,6 +1056,28 @@ test('server, listen with an invalid backlog', async (t) => {
   await waitForListening(server)
 
   t.is(server.address(), n, 'listening still works after a rejected backlog')
+
+  await new Promise((resolve) => server.close(resolve))
+})
+
+test('server, listen with a zero backlog', async (t) => {
+  t.plan(1)
+
+  const n = name()
+
+  const server = Pipe.createServer((pipe) => pipe.end())
+  server.listen(n, 0)
+
+  await waitForListening(server)
+
+  const client = new Pipe(n)
+  client.resume()
+
+  await new Promise((resolve) => client.on('end', resolve))
+
+  t.pass('a zero backlog falls back to the default')
+
+  client.destroy()
 
   await new Promise((resolve) => server.close(resolve))
 })

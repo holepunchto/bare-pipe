@@ -1,5 +1,5 @@
 const EventEmitter = require('bare-events')
-const { Duplex } = require('bare-stream')
+const { Duplex, isFinished, isReadable, isWritable } = require('bare-stream')
 const binding = require('./binding')
 const constants = require('./lib/constants')
 const errors = require('./lib/errors')
@@ -35,6 +35,8 @@ module.exports = exports = class Pipe extends Duplex {
 
     this._fd = -1
     this._path = null
+
+    this._error = null
 
     this._pendingOpen = null
     this._pendingWrite = null
@@ -78,19 +80,17 @@ module.exports = exports = class Pipe extends Duplex {
   }
 
   get readyState() {
-    if (this._state & constants.state.READABLE && this._state & constants.state.WRITABLE) {
-      return 'open'
-    }
+    if (this.pending) return 'opening'
 
-    if (this._state & constants.state.READABLE) {
-      return 'readOnly'
-    }
+    const readable = (this._state & constants.state.READABLE) !== 0 && isReadable(this)
+    const writable =
+      (this._state & constants.state.WRITABLE) !== 0 && isWritable(this) && !isFinished(this)
 
-    if (this._state & constants.state.WRITABLE) {
-      return 'writeOnly'
-    }
+    if (readable && writable) return 'open'
+    if (readable) return 'readOnly'
+    if (writable) return 'writeOnly'
 
-    return 'opening'
+    return 'closed'
   }
 
   get [ipcHandle]() {
@@ -98,7 +98,7 @@ module.exports = exports = class Pipe extends Duplex {
   }
 
   connect(path, opts = {}, onconnect) {
-    if (this._state & constants.state.CLOSING) {
+    if ((this._state & constants.state.CLOSING) !== 0 || this._error !== null) {
       throw errors.PIPE_IS_CLOSED('Pipe is closed')
     }
 
@@ -129,6 +129,8 @@ module.exports = exports = class Pipe extends Duplex {
     } catch (err) {
       this._state &= ~constants.state.CONNECTING
 
+      this._error = err
+
       queueMicrotask(() => {
         if (this._pendingOpen) this._continueOpen(err)
         else this.destroy(err)
@@ -139,7 +141,7 @@ module.exports = exports = class Pipe extends Duplex {
   }
 
   open(fd, opts = {}, onconnect) {
-    if (this._state & constants.state.CLOSING) {
+    if ((this._state & constants.state.CLOSING) !== 0 || this._error !== null) {
       throw errors.PIPE_IS_CLOSED('Pipe is closed')
     }
 
@@ -188,6 +190,8 @@ module.exports = exports = class Pipe extends Duplex {
         this.emit('connect')
       })
     } catch (err) {
+      this._error = err
+
       queueMicrotask(() => {
         if (this._pendingOpen) this._continueOpen(err)
         else this.destroy(err)
@@ -211,13 +215,13 @@ module.exports = exports = class Pipe extends Duplex {
       handle = null
     }
 
-    if (handle) {
-      toIPCHandle(handle)
+    if (handle) toIPCHandle(handle)
 
-      this._handleQueueSize++
+    if ((this._state & constants.state.CLOSING) === 0) {
+      if (handle) this._handleQueueSize++
+
+      this._handleQueue.push(handle || null)
     }
-
-    this._handleQueue.push(handle || null)
 
     if (encoding) return super.write(chunk, encoding, cb)
 
@@ -364,6 +368,8 @@ module.exports = exports = class Pipe extends Duplex {
     this._state |= constants.state.CLOSING
     this._state &= ~constants.state.CONNECTING
 
+    this._clearHandleQueue()
+
     binding.close(this._handle)
   }
 
@@ -372,9 +378,16 @@ module.exports = exports = class Pipe extends Duplex {
     this._state |= constants.state.CLOSING
     this._state &= ~constants.state.CONNECTING
 
+    this._clearHandleQueue()
+
     this._pendingDestroy = cb
 
     binding.close(this._handle)
+  }
+
+  _clearHandleQueue() {
+    this._handleQueue = []
+    this._handleQueueSize = 0
   }
 
   _continueOpen(err) {
