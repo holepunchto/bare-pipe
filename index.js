@@ -1,5 +1,5 @@
 const EventEmitter = require('bare-events')
-const { Duplex } = require('bare-stream')
+const { Duplex, isFinished, isReadable, isWritable } = require('bare-stream')
 const binding = require('./binding')
 const constants = require('./lib/constants')
 const errors = require('./lib/errors')
@@ -26,15 +26,17 @@ module.exports = exports = class Pipe extends Duplex {
 
     validateInteger(readBufferSize, 'Read buffer size', 1, 0x7fffffff)
 
-    super({ eagerOpen })
+    super({ eagerOpen: !!eagerOpen })
 
     this._state = 0
 
-    this._allowHalfOpen = allowHalfOpen
+    this._allowHalfOpen = !!allowHalfOpen
     this._ipc = !!ipc
 
     this._fd = -1
     this._path = null
+
+    this._error = null
 
     this._pendingOpen = null
     this._pendingWrite = null
@@ -74,23 +76,25 @@ module.exports = exports = class Pipe extends Duplex {
   }
 
   get pending() {
+    if (this._state & (constants.state.CLOSING | constants.state.CLOSED)) return true
+
     return (this._state & constants.state.CONNECTED) === 0
   }
 
   get readyState() {
-    if (this._state & constants.state.READABLE && this._state & constants.state.WRITABLE) {
-      return 'open'
+    if (this._state & constants.state.CONNECTING) return 'opening'
+
+    if (this._state & constants.state.CONNECTED) {
+      const readable = (this._state & constants.state.READABLE) !== 0 && isReadable(this)
+      const writable =
+        (this._state & constants.state.WRITABLE) !== 0 && isWritable(this) && !isFinished(this)
+
+      if (readable && writable) return 'open'
+      if (readable) return 'readOnly'
+      if (writable) return 'writeOnly'
     }
 
-    if (this._state & constants.state.READABLE) {
-      return 'readOnly'
-    }
-
-    if (this._state & constants.state.WRITABLE) {
-      return 'writeOnly'
-    }
-
-    return 'opening'
+    return 'closed'
   }
 
   get [ipcHandle]() {
@@ -98,7 +102,7 @@ module.exports = exports = class Pipe extends Duplex {
   }
 
   connect(path, opts = {}, onconnect) {
-    if (this._state & constants.state.CLOSING) {
+    if ((this._state & constants.state.CLOSING) !== 0 || this._error !== null) {
       throw errors.PIPE_IS_CLOSED('Pipe is closed')
     }
 
@@ -127,19 +131,14 @@ module.exports = exports = class Pipe extends Duplex {
 
       if (onconnect) this.once('connect', onconnect)
     } catch (err) {
-      this._state &= ~constants.state.CONNECTING
-
-      queueMicrotask(() => {
-        if (this._pendingOpen) this._continueOpen(err)
-        else this.destroy(err)
-      })
+      queueMicrotask(() => this._failConnect(err))
     }
 
     return this
   }
 
   open(fd, opts = {}, onconnect) {
-    if (this._state & constants.state.CLOSING) {
+    if ((this._state & constants.state.CLOSING) !== 0 || this._error !== null) {
       throw errors.PIPE_IS_CLOSED('Pipe is closed')
     }
 
@@ -179,20 +178,24 @@ module.exports = exports = class Pipe extends Duplex {
       }
 
       if (onconnect) this.once('connect', onconnect)
-
-      this._continueOpen()
-
-      queueMicrotask(() => {
-        if (this._state & constants.state.CLOSING) return
-
-        this.emit('connect')
-      })
     } catch (err) {
+      this._error = err
+
       queueMicrotask(() => {
         if (this._pendingOpen) this._continueOpen(err)
         else this.destroy(err)
       })
+
+      return this
     }
+
+    this._continueOpen()
+
+    queueMicrotask(() => {
+      if (this._state & constants.state.CLOSING) return
+
+      this.emit('connect')
+    })
 
     return this
   }
@@ -211,13 +214,13 @@ module.exports = exports = class Pipe extends Duplex {
       handle = null
     }
 
-    if (handle) {
-      toIPCHandle(handle)
+    if (handle) toIPCHandle(handle)
 
-      this._handleQueueSize++
+    if ((this._state & constants.state.CLOSING) === 0) {
+      if (handle) this._handleQueueSize++
+
+      this._handleQueue.push(handle || null)
     }
-
-    this._handleQueue.push(handle || null)
 
     if (encoding) return super.write(chunk, encoding, cb)
 
@@ -275,6 +278,12 @@ module.exports = exports = class Pipe extends Duplex {
   _writev(batch, cb) {
     this._pendingWrite = cb
     this._pendingWriteBatch = batch
+
+    try {
+      coerceBatch(batch)
+    } catch (err) {
+      return this._continueWrite(err)
+    }
 
     if (this._handleQueueSize === 0) {
       this._handleQueue = []
@@ -355,7 +364,7 @@ module.exports = exports = class Pipe extends Duplex {
     try {
       binding.end(this._handle)
     } catch (err) {
-      this._continueFinal(err)
+      this._continueFinal(err.code === 'ENOTCONN' ? null : err)
     }
   }
 
@@ -364,17 +373,28 @@ module.exports = exports = class Pipe extends Duplex {
     this._state |= constants.state.CLOSING
     this._state &= ~constants.state.CONNECTING
 
+    this._clearHandleQueue()
+
     binding.close(this._handle)
   }
 
   _destroy(err, cb) {
-    if (this._state & constants.state.CLOSING) return cb(err)
-    this._state |= constants.state.CLOSING
-    this._state &= ~constants.state.CONNECTING
+    if (this._state & constants.state.CLOSED) return cb(err)
 
     this._pendingDestroy = cb
 
+    if (this._state & constants.state.CLOSING) return
+    this._state |= constants.state.CLOSING
+    this._state &= ~constants.state.CONNECTING
+
+    this._clearHandleQueue()
+
     binding.close(this._handle)
+  }
+
+  _clearHandleQueue() {
+    this._handleQueue = []
+    this._handleQueueSize = 0
   }
 
   _continueOpen(err) {
@@ -419,12 +439,18 @@ module.exports = exports = class Pipe extends Duplex {
     cb(null)
   }
 
+  _failConnect(err) {
+    if (this._state & constants.state.CLOSING) return
+
+    this._state &= ~constants.state.CONNECTING
+
+    if (this._pendingOpen) this._continueOpen(err)
+    else this.destroy(err)
+  }
+
   _onconnect(err) {
     if (err) {
-      this._state &= ~constants.state.CONNECTING
-
-      if (this._pendingOpen) this._continueOpen(err)
-      else this.destroy(err)
+      this._failConnect(err)
       return
     }
 
@@ -468,8 +494,8 @@ module.exports = exports = class Pipe extends Duplex {
     this._continueWrite(err)
   }
 
-  _onfinal(err) {
-    this._continueFinal(err === null || err.code === 'ENOTCONN' ? null : err)
+  _onfinal() {
+    this._continueFinal(null)
   }
 
   _onhandle(type) {
@@ -477,6 +503,8 @@ module.exports = exports = class Pipe extends Duplex {
   }
 
   _onclose() {
+    this._state |= constants.state.CLOSED
+
     this._continueOpen()
     this._continueDestroy()
   }
@@ -523,8 +551,8 @@ exports.Server = class PipeServer extends EventEmitter {
     this._state = 0
 
     this._readBufferSize = readBufferSize
-    this._allowHalfOpen = allowHalfOpen
-    this._pauseOnConnect = pauseOnConnect
+    this._allowHalfOpen = !!allowHalfOpen
+    this._pauseOnConnect = !!pauseOnConnect
     this._ipc = !!ipc
 
     this._path = null
@@ -570,10 +598,10 @@ exports.Server = class PipeServer extends EventEmitter {
     if (typeof path === 'object' && path !== null) {
       opts = path
       path = opts.path
-      backlog = opts.backlog || 511
+      backlog = defaultTo(opts.backlog, 511)
     }
 
-    if (!backlog) backlog = 511
+    if (backlog === null || backlog === 0) backlog = 511
 
     validatePath(path)
     validateInteger(backlog, 'Backlog', 0, 0x7fffffff)
@@ -694,13 +722,14 @@ exports.Server = class PipeServer extends EventEmitter {
         this._connections.delete(pipe)
         this._closeMaybe()
       })
-
-      this.emit('connection', pipe)
     } catch (err) {
       pipe.destroy()
 
       this.emit('error', err)
+      return
     }
+
+    this.emit('connection', pipe)
   }
 
   _onclose() {
@@ -796,6 +825,22 @@ function validateInteger(value, name, min, max) {
       `${name} must be an integer between ${min} and ${max}, got ${value}`
     )
   }
+}
+
+function coerceBatch(batch) {
+  for (let i = 0; i < batch.length; i++) {
+    const chunk = batch[i].chunk
+
+    if (ArrayBuffer.isView(chunk) === false) {
+      throw errors.INVALID_ARGUMENT(`Chunk must be a string or a view, got ${typeof chunk}`)
+    }
+
+    batch[i].chunk = Buffer.coerce(chunk)
+  }
+}
+
+function defaultTo(value, fallback) {
+  return value === undefined || value === null ? fallback : value
 }
 
 function noop() {}

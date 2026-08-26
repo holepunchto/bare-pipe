@@ -147,7 +147,7 @@ test('socket, ipc is coerced to a boolean', async (t) => {
 
   const socket = new Pipe({ ipc: 1 })
 
-  t.is(socket.readyState, 'opening', 'constructed with a truthy ipc option')
+  t.ok(socket.pending, 'constructed with a truthy ipc option')
 
   socket.destroy()
 
@@ -165,7 +165,7 @@ test('socket, readyState and pending before connecting', async (t) => {
 
   const socket = new Pipe()
 
-  t.is(socket.readyState, 'opening', 'opening while unconnected')
+  t.is(socket.readyState, 'closed', 'closed before connect, as in Node')
   t.ok(socket.pending, 'pending while unconnected')
   t.absent(socket.connecting, 'not connecting until asked to')
 
@@ -175,7 +175,7 @@ test('socket, readyState and pending before connecting', async (t) => {
 })
 
 test('socket, readyState and pending while connected', async (t) => {
-  t.plan(4)
+  t.plan(6)
 
   const n = name()
 
@@ -196,7 +196,111 @@ test('socket, readyState and pending while connected', async (t) => {
 
   client.destroy()
 
+  await waitFor(client, 'close')
+
+  t.is(client.readyState, 'closed', 'closed once destroyed')
+  t.ok(client.pending, 'pending again once the handle is gone, as in Node')
+
   await new Promise((resolve) => server.close(resolve))
+})
+
+test('socket, readyState as the halves end', async (t) => {
+  t.plan(4)
+
+  const n = name()
+
+  const server = Pipe.createServer((pipe) => {
+    pipe.resume().on('end', () => pipe.end())
+  })
+  server.listen(n)
+
+  await waitForListening(server)
+
+  const client = new Pipe(n)
+
+  t.is(client.readyState, 'opening', 'opening while connecting')
+
+  await new Promise((resolve) => client.on('connect', resolve))
+
+  t.is(client.readyState, 'open', 'open once connected')
+
+  client.end()
+
+  await new Promise((resolve) => client.on('finish', resolve))
+
+  t.is(client.readyState, 'readOnly', 'read only once the writable half has ended')
+
+  client.destroy()
+
+  await new Promise((resolve) => client.on('close', resolve))
+
+  t.is(client.readyState, 'closed', 'closed once destroyed')
+
+  await new Promise((resolve) => server.close(resolve))
+})
+
+test('socket, readyState after the peer ends', async (t) => {
+  t.plan(1)
+
+  const n = name()
+
+  const server = Pipe.createServer((pipe) => pipe.end())
+  server.listen(n)
+
+  await waitForListening(server)
+
+  const client = new Pipe(n)
+  client.resume()
+
+  await new Promise((resolve) => client.on('end', resolve))
+
+  t.is(client.readyState, 'writeOnly', 'write only once the peer has ended')
+
+  client.destroy()
+
+  await new Promise((resolve) => server.close(resolve))
+})
+
+test('socket, readyState once an unconnected pipe is destroyed', async (t) => {
+  t.plan(1)
+
+  const socket = new Pipe()
+
+  socket.destroy()
+
+  await new Promise((resolve) => socket.on('close', resolve))
+
+  t.is(socket.readyState, 'closed', 'closed without ever connecting')
+})
+
+test('socket, readyState after a failed connect', async (t) => {
+  t.plan(2)
+
+  // An empty path is rejected by the underlying handle right away, but the
+  // failure is still reported asynchronously, so the pipe stays connecting
+  // until it settles, as in Node.
+  const socket = new Pipe()
+  socket.on('error', () => {})
+  socket.connect('')
+
+  t.is(socket.readyState, 'opening', 'still opening while the failure settles')
+
+  await new Promise((resolve) => socket.on('close', resolve))
+
+  t.is(socket.readyState, 'closed', 'closed once the connect has failed')
+})
+
+test('socket, readyState while a connect is in flight', async (t) => {
+  t.plan(2)
+
+  const socket = new Pipe(name())
+  socket.on('error', () => {})
+
+  t.is(socket.readyState, 'opening', 'opening while the connect is in flight')
+
+  await new Promise((resolve) => socket.on('close', resolve))
+
+  t.is(socket.readyState, 'closed', 'closed once the connect has failed')
 })
 
 test('socket, connecting is false after failed connect', async (t) => {
@@ -383,6 +487,42 @@ test('socket, connect after a failed connect', async (t) => {
   t.exception(() => socket.connect(name()), /PIPE_IS_CLOSED/)
 })
 
+test('socket, connect while a failed connect is still settling', async (t) => {
+  t.plan(2)
+
+  // An empty path is the one input the underlying handle rejects synchronously
+  // on every platform, though the failure is only reported once it settles.
+  const socket = new Pipe()
+  socket.on('error', () => {})
+  socket.connect('')
+
+  // The pipe is still connecting until the failure settles, as in Node, so
+  // another connect is rejected as a duplicate rather than as a closed pipe.
+  // Either way it must not be accepted, as the deferred failure would tear it
+  // down again.
+  t.ok(socket.connecting, 'still connecting while the failure settles')
+  t.exception(() => socket.connect(name()), /PIPE_ALREADY_CONNECTED/)
+
+  await new Promise((resolve) => socket.on('close', resolve))
+})
+
+test('socket, open while a failed open is still settling', async (t) => {
+  t.plan(1)
+
+  const socket = new Pipe(1 << 24)
+  socket.on('error', () => {})
+
+  const [read, write] = Pipe.pipe()
+
+  t.exception(() => socket.open(read), /PIPE_IS_CLOSED/)
+
+  // Neither descriptor was adopted, so close them by hand.
+  fs.closeSync(read)
+  fs.closeSync(write)
+
+  await new Promise((resolve) => socket.on('close', resolve))
+})
+
 test('socket, connect after being destroyed', async (t) => {
   t.plan(2)
 
@@ -504,6 +644,18 @@ test('socket, open with an invalid fd type', async (t) => {
   t.exception(() => socket.open({ fd: '3' }), /INVALID_FD/)
   t.exception(() => socket.open(-1), /INVALID_FD/)
   t.exception(() => socket.open(1.5), /INVALID_FD/)
+
+  socket.destroy()
+
+  await new Promise((resolve) => socket.on('close', resolve))
+})
+
+test('socket, open while already connected', async (t) => {
+  t.plan(1)
+
+  const socket = new Pipe(Pipe.pipe()[0])
+
+  t.exception(() => socket.open(Pipe.pipe()[0]), /PIPE_ALREADY_CONNECTED/)
 
   socket.destroy()
 
@@ -654,6 +806,18 @@ test('socket, write with an invalid handle', async (t) => {
   await new Promise((resolve) => socket.on('close', resolve))
 })
 
+test('socket, write with an invalid handle after destroy', async (t) => {
+  t.plan(1)
+
+  const socket = new Pipe()
+  socket.destroy()
+
+  await new Promise((resolve) => socket.on('close', resolve))
+
+  // A destroyed pipe no longer queues handles, but the target is still checked.
+  t.exception(() => socket.write(Buffer.from('here'), {}), /INVALID_IPC_TARGET/)
+})
+
 test('socket, backpressure', async (t) => {
   t.plan(1)
 
@@ -700,6 +864,26 @@ test('socket, allow half open false', async (t) => {
     .on('end', () => t.pass('client ended'))
     .on('finish', () => t.pass('client finished without being ended'))
     .resume()
+
+  await new Promise((resolve) => client.on('close', resolve))
+
+  await new Promise((resolve) => server.close(resolve))
+})
+
+test('socket, allow half open is coerced to a boolean', async (t) => {
+  t.plan(1)
+
+  const n = name()
+
+  const server = Pipe.createServer((pipe) => pipe.end('hello client'))
+  server.listen(n)
+
+  await waitForListening(server)
+
+  // A falsy value disables half open, as in Node, so the peer ending also ends
+  // the writable half.
+  const client = new Pipe(n, { allowHalfOpen: 0 })
+  client.on('finish', () => t.pass('client finished without being ended')).resume()
 
   await new Promise((resolve) => client.on('close', resolve))
 
@@ -823,6 +1007,54 @@ test('server, connection listener as the only argument', async (t) => {
   await new Promise((resolve) => server.close(resolve))
 })
 
+test('server, connection listener that throws', async (t) => {
+  t.plan(3)
+
+  const n = name()
+
+  const server = Pipe.createServer()
+
+  server.on('error', () => t.fail('a listener bug must not become a server error'))
+
+  // Capture the connection before the listener that throws runs, as listeners
+  // are called in the order they were added.
+  const accepted = new Promise((resolve) => server.on('connection', resolve))
+
+  server.on('connection', () => {
+    throw new Error('listener bug')
+  })
+
+  // The exception propagates out of the accept, as in Node, so it has to be
+  // caught here to keep it from taking the test process down with it.
+  const onuncaught = (err) => t.is(err.message, 'listener bug', 'the exception propagates')
+
+  Bare.on('uncaughtException', onuncaught)
+
+  t.teardown(() => Bare.off('uncaughtException', onuncaught))
+
+  server.listen(n)
+
+  await waitForListening(server)
+
+  const client = new Pipe(n).on('error', noop)
+
+  const pipe = await accepted
+
+  t.absent(pipe.destroying, 'the connection handed to the listener survives')
+
+  pipe.end('hello')
+
+  const data = await Promise.race([
+    new Promise((resolve) => client.on('data', resolve)),
+    new Promise((resolve) => setTimeout(() => resolve(null), 500))
+  ])
+
+  t.alike(data, Buffer.from('hello'), 'and is still usable')
+
+  client.destroy()
+  server.close()
+})
+
 test('server, pause on connect', async (t) => {
   t.plan(1)
 
@@ -937,12 +1169,18 @@ test('server, listen with options', async (t) => {
 })
 
 test('server, listen with an invalid backlog', async (t) => {
-  t.plan(3)
+  t.plan(6)
 
   const server = Pipe.createServer()
 
   t.exception(() => server.listen(name(), 'abc'), /INVALID_ARGUMENT/)
   t.exception(() => server.listen({ path: name(), backlog: 'abc' }), /INVALID_ARGUMENT/)
+
+  // A falsy backlog is rejected rather than quietly replaced by the default,
+  // which only stands in for an absent one.
+  t.exception(() => server.listen({ path: name(), backlog: NaN }), /INVALID_ARGUMENT/)
+  t.exception(() => server.listen({ path: name(), backlog: false }), /INVALID_ARGUMENT/)
+  t.exception(() => server.listen({ path: name(), backlog: '' }), /INVALID_ARGUMENT/)
 
   // A rejected argument must not leave the server wedged.
   const n = name()
@@ -951,6 +1189,28 @@ test('server, listen with an invalid backlog', async (t) => {
   await waitForListening(server)
 
   t.is(server.address(), n, 'listening still works after a rejected backlog')
+
+  await new Promise((resolve) => server.close(resolve))
+})
+
+test('server, listen with a zero backlog', async (t) => {
+  t.plan(1)
+
+  const n = name()
+
+  const server = Pipe.createServer((pipe) => pipe.end())
+  server.listen(n, 0)
+
+  await waitForListening(server)
+
+  const client = new Pipe(n)
+  client.resume()
+
+  await new Promise((resolve) => client.on('end', resolve))
+
+  t.pass('a zero backlog falls back to the default')
+
+  client.destroy()
 
   await new Promise((resolve) => server.close(resolve))
 })
@@ -1534,6 +1794,84 @@ test('ipc, multiple pending handles drain in order', { skip: isWindows }, async 
   peerB.on('connect', tryWrite)
 })
 
+test('ipc, each handle rides with its own message', { skip: isWindows }, async (t) => {
+  t.plan(5)
+
+  const echo = name()
+
+  const server = Pipe.createServer((peer) => peer.pipe(peer))
+  server.listen(echo)
+
+  const tcpServer = tcp.createServer((sock) => sock.pipe(sock))
+  tcpServer.listen()
+
+  await waitForListening(server)
+  await waitForListening(tcpServer)
+
+  const [a, b] = tcp.socketpair()
+
+  const left = new Pipe(a, { ipc: true })
+  const right = new Pipe(b, { ipc: true })
+
+  const types = []
+  const chunks = []
+
+  // The data seen so far when each handle arrived. Ancillary data forces a read
+  // boundary, but where the boundary falls is platform specific: Linux ends the
+  // read after the message that carries the handle, coalescing everything
+  // written before it, whereas macOS ends the read before it. The prefix
+  // therefore only bounds which message carried the handle from above.
+  const prefixes = []
+
+  right
+    .on('handle', (type) => {
+      types.push(type)
+      prefixes.push(Buffer.concat(chunks).toString())
+
+      right.accept(type === Pipe.constants.handle.TCP ? new tcp.Socket() : new Pipe()).destroy()
+    })
+    .on('data', (data) => chunks.push(data))
+
+  const peer = new Pipe(echo)
+  const peerTcp = tcp.createConnection(tcpServer.address().port)
+
+  await new Promise((resolve) => peer.on('connect', resolve))
+  await new Promise((resolve) => peerTcp.on('connect', resolve))
+
+  // Queued in one tick, so a single batch is split into segments around the
+  // two handles.
+  left.write(Buffer.from('one'))
+  left.write(Buffer.from('two'), peer)
+  left.write(Buffer.from('three'))
+  left.write(Buffer.from('four'), peerTcp)
+  left.write(Buffer.from('five'))
+
+  await new Promise((resolve) => setTimeout(resolve, 100))
+
+  t.alike(
+    types,
+    [Pipe.constants.handle.NAMED_PIPE, Pipe.constants.handle.TCP],
+    'received both handles in order'
+  )
+  t.ok('onetwo'.startsWith(prefixes[0]), 'the pipe arrived no later than the second message')
+  t.ok(
+    'onetwothreefour'.startsWith(prefixes[1]),
+    'the socket arrived no later than the fourth message'
+  )
+  // Two handles on the same message would be surfaced from the same read, and
+  // so would see the same prefix.
+  t.not(prefixes[0], prefixes[1], 'the handles arrived on separate reads')
+  t.alike(Buffer.concat(chunks), Buffer.from('onetwothreefourfive'), 'received all data in order')
+
+  peer.destroy()
+  peerTcp.destroy()
+  left.destroy()
+  right.destroy()
+
+  await new Promise((resolve) => server.close(resolve))
+  await new Promise((resolve) => tcpServer.close(resolve))
+})
+
 test('ipc, handle and data writes in the same batch', { skip: isWindows }, async (t) => {
   t.plan(2)
 
@@ -1579,6 +1917,54 @@ test('ipc, handle and data writes in the same batch', { skip: isWindows }, async
 
   await new Promise((resolve) => server.close(resolve))
 })
+
+test('socket, coerces a view that is not a buffer', async (t) => {
+  t.plan(1)
+
+  const [read, write] = Pipe.pipe()
+
+  const reader = new Pipe(read)
+  const writer = new Pipe(write)
+
+  const chunks = []
+  reader.on('data', (chunk) => chunks.push(chunk))
+
+  const buffer = new ArrayBuffer(4)
+  new Uint8Array(buffer).set([1, 2, 3, 4])
+
+  // A view that is not a buffer shares its memory with the buffer it is coerced
+  // to, so the bytes have to arrive unchanged, offset and length included.
+  writer.end(new DataView(buffer, 1, 2))
+
+  await waitFor(reader, 'end')
+
+  t.alike(Buffer.concat(chunks), Buffer.from([2, 3]))
+
+  reader.destroy()
+})
+
+test('socket, rejects a chunk that is not a view', async (t) => {
+  t.plan(1)
+
+  const [read, write] = Pipe.pipe()
+
+  const reader = new Pipe(read)
+  const writer = new Pipe(write)
+
+  reader.resume()
+
+  // An array buffer is not a view, so there is nothing for the write request to
+  // point at. It has to fail the write rather than reach the binding.
+  writer.write(new ArrayBuffer(4))
+
+  const err = await new Promise((resolve) => writer.on('error', resolve))
+
+  t.is(err.code, 'INVALID_ARGUMENT')
+
+  reader.destroy()
+})
+
+function noop() {}
 
 function waitForListening(server) {
   if (server.listening) return Promise.resolve()

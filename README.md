@@ -11,9 +11,14 @@ npm i bare-pipe
 ```js
 const Pipe = require('bare-pipe')
 
-const stdout = new Pipe(1)
+const [read, write] = Pipe.pipe()
 
-stdout.write('Hello world!\n')
+const reader = new Pipe(read)
+const writer = new Pipe(write)
+
+reader.on('data', (data) => console.log(data.toString()))
+
+writer.end('Hello world!\n')
 ```
 
 ## API
@@ -49,19 +54,29 @@ Whether the pipe has not yet connected.
 
 #### `pipe.readyState`
 
-The current state of the pipe. One of `'open'`, `'readOnly'`, `'writeOnly'`, or `'opening'`.
+The current state of the pipe, as in Node:
+
+- `'opening'` if the pipe is connecting.
+- `'open'` if both halves of the pipe are open.
+- `'readOnly'` if the writable half has ended.
+- `'writeOnly'` if the readable half has ended.
+- `'closed'` otherwise, including before the pipe connects.
 
 #### `pipe.connect(path[, options][, onconnect])`
 
 Connect the pipe to `path`. `onconnect` is called when the connection is established.
 
-A path may be at most `Pipe.constants.path.MAX_LENGTH` bytes long.
+A path may be at most `Pipe.constants.path.MAX_LENGTH` bytes long, or `INVALID_PATH` is thrown. That is only the upper bound this module imposes; the platform limit is much lower, around 104 bytes on macOS and 108 bytes on Linux for a Unix domain socket, so a shorter path may still be rejected by the operating system with `EINVAL` or `ENAMETOOLONG`.
+
+A failed connect destroys the pipe, so the pipe cannot be reused. The pipe stays connecting until the failure settles, as in Node, so `pipe.connect()` throws `PIPE_ALREADY_CONNECTED` until then and `PIPE_IS_CLOSED` from then on. A failed `pipe.open()` takes effect right away, so both `pipe.connect()` and `pipe.open()` throw `PIPE_IS_CLOSED` immediately, even before the resulting `error` event has been emitted.
 
 #### `pipe.open(fd[, options][, onconnect])`
 
 Open the pipe on the given file descriptor, such as one obtained from `Pipe.pipe()` or received over IPC. `onconnect` is called when the pipe is ready.
 
 A descriptor that is only readable or only writable, such as one half of a pair, leaves the corresponding half of the pipe ended right away.
+
+The descriptor must be one the event loop can poll, so a regular file or a directory is rejected with `EINVAL`. Standard I/O is only adoptable when it is a pipe or a socket; when it has been redirected to a file, use `bare-fs`, and when it is a terminal, use `bare-tty`.
 
 #### `pipe.write(chunk[, encoding][, handle][, cb])`
 
@@ -86,6 +101,8 @@ Emitted when the pipe connects.
 #### `event: 'handle'`
 
 Emitted on the receiving side for each pending handle when the pipe was created with `ipc: true`. The argument is the handle type, one of `Pipe.constants.handle.NAMED_PIPE`, `TCP`, or `UDP`. The listener must call `pipe.accept(target)` synchronously to claim the handle. Multiple handles arriving in a single read are emitted in arrival order before the corresponding `'data'` event.
+
+A handle the listener does not accept stays pending and is emitted again on the next read, so a listener that skips a handle will see it more than once.
 
 #### `const server = new Pipe.Server([options][, onconnection])`
 
@@ -158,7 +175,9 @@ Emitted when an error occurs.
 
 #### `const [read, write] = Pipe.pipe()`
 
-Create a pair of file descriptors connected to each other. Use `pipe.open(fd)` to adopt them.
+Create a pair of file descriptors connected to each other, the first readable and the second writable. Use `pipe.open(fd)` to adopt them. The pair is a unidirectional pipe, so it carries data but not handles.
+
+A descriptor is closed along with the pipe that adopted it, so a descriptor that is never adopted has to be closed by hand, such as with `bare-fs`.
 
 #### `Pipe.constants`
 
@@ -179,6 +198,8 @@ Class for pipe specific errors, with a static factory per error code.
 ## IPC handle passing
 
 Pipes created with `ipc: true` can transfer libuv handles (named pipes, TCP sockets, UDP sockets) to a peer alongside the byte stream. The peer receives a `'handle'` event for each transferred handle, in arrival order, before the corresponding `'data'` event.
+
+Handle passing needs a bidirectional socket on both ends, so the descriptors must come from a socket pair, such as `bare-tcp`'s `socketpair()`. The descriptors from `Pipe.pipe()` are a unidirectional pipe and cannot carry handles.
 
 Sender:
 
