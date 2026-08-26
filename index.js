@@ -1,5 +1,5 @@
 const EventEmitter = require('bare-events')
-const { Duplex } = require('bare-stream')
+const { Duplex, isFinished, isReadable, isWritable } = require('bare-stream')
 const binding = require('./binding')
 const constants = require('./lib/constants')
 const errors = require('./lib/errors')
@@ -24,15 +24,19 @@ module.exports = exports = class Pipe extends Duplex {
       ipc = false
     } = opts
 
-    super({ eagerOpen })
+    validateInteger(readBufferSize, 'Read buffer size', 1, 0x7fffffff)
+
+    super({ eagerOpen: !!eagerOpen })
 
     this._state = 0
 
-    this._allowHalfOpen = allowHalfOpen
-    this._ipc = ipc
+    this._allowHalfOpen = !!allowHalfOpen
+    this._ipc = !!ipc
 
     this._fd = -1
     this._path = null
+
+    this._error = null
 
     this._pendingOpen = null
     this._pendingWrite = null
@@ -49,13 +53,13 @@ module.exports = exports = class Pipe extends Duplex {
 
     this._handle = binding.init(
       this._buffer,
-      ipc,
+      this._ipc,
       this,
       noop,
       this._onconnect,
+      this._onread,
       this._onwrite,
       this._onfinal,
-      this._onread,
       this._onhandle,
       this._onclose
     )
@@ -72,45 +76,94 @@ module.exports = exports = class Pipe extends Duplex {
   }
 
   get pending() {
+    if (this._state & (constants.state.CLOSING | constants.state.CLOSED)) return true
+
     return (this._state & constants.state.CONNECTED) === 0
   }
 
   get readyState() {
-    if (this._state & constants.state.READABLE && this._state & constants.state.WRITABLE) {
-      return 'open'
+    if (this._state & constants.state.CONNECTING) return 'opening'
+
+    if (this._state & constants.state.CONNECTED) {
+      const readable = (this._state & constants.state.READABLE) !== 0 && isReadable(this)
+      const writable =
+        (this._state & constants.state.WRITABLE) !== 0 && isWritable(this) && !isFinished(this)
+
+      if (readable && writable) return 'open'
+      if (readable) return 'readOnly'
+      if (writable) return 'writeOnly'
     }
 
-    if (this._state & constants.state.READABLE) {
-      return 'readOnly'
-    }
-
-    if (this._state & constants.state.WRITABLE) {
-      return 'writeOnly'
-    }
-
-    return 'opening'
+    return 'closed'
   }
 
   get [ipcHandle]() {
     return this._handle
   }
 
+  connect(path, opts = {}, onconnect) {
+    if ((this._state & constants.state.CLOSING) !== 0 || this._error !== null) {
+      throw errors.PIPE_IS_CLOSED('Pipe is closed')
+    }
+
+    if (this._state & (constants.state.CONNECTING | constants.state.CONNECTED)) {
+      throw errors.PIPE_ALREADY_CONNECTED('Pipe is already connected')
+    }
+
+    if (typeof opts === 'function') {
+      onconnect = opts
+      opts = {}
+    }
+
+    if (typeof path === 'object' && path !== null) {
+      opts = path
+      path = opts.path
+    }
+
+    validatePath(path)
+
+    this._state |= constants.state.CONNECTING
+
+    try {
+      binding.connect(this._handle, path)
+
+      this._path = path
+
+      if (onconnect) this.once('connect', onconnect)
+    } catch (err) {
+      queueMicrotask(() => this._failConnect(err))
+    }
+
+    return this
+  }
+
   open(fd, opts = {}, onconnect) {
+    if ((this._state & constants.state.CLOSING) !== 0 || this._error !== null) {
+      throw errors.PIPE_IS_CLOSED('Pipe is closed')
+    }
+
+    if (this._state & (constants.state.CONNECTING | constants.state.CONNECTED)) {
+      throw errors.PIPE_ALREADY_CONNECTED('Pipe is already connected')
+    }
+
     if (typeof opts === 'function') {
       onconnect = opts
       opts = {}
     }
 
     if (typeof fd === 'object' && fd !== null) {
-      opts = fd || {}
+      opts = fd
       fd = opts.fd
     }
+
+    validateFd(fd)
 
     try {
       const status = binding.open(this._handle, fd)
 
-      this._state |= constants.state.CONNECTED
       this._fd = fd
+
+      this._state |= constants.state.CONNECTED
 
       if (status & binding.READABLE) {
         this._state |= constants.state.READABLE
@@ -125,49 +178,24 @@ module.exports = exports = class Pipe extends Duplex {
       }
 
       if (onconnect) this.once('connect', onconnect)
-
-      queueMicrotask(() => this.emit('connect'))
     } catch (err) {
-      queueMicrotask(() => {
-        if (this._pendingOpen) this._pendingOpen(err)
-        else this.destroy(err)
-      })
-    }
-
-    return this
-  }
-
-  connect(path, opts = {}, onconnect) {
-    if (this._state & constants.state.CONNECTING || this._state & constants.state.CONNECTED) {
-      throw errors.PIPE_ALREADY_CONNECTED('Pipe is already connected')
-    }
-
-    this._state |= constants.state.CONNECTING
-
-    if (typeof opts === 'function') {
-      onconnect = opts
-      opts = {}
-    }
-
-    if (typeof path === 'object' && path !== null) {
-      opts = path || {}
-      path = opts.path
-    }
-
-    try {
-      binding.connect(this._handle, path)
-
-      this._path = path
-
-      if (onconnect) this.once('connect', onconnect)
-    } catch (err) {
-      this._state &= ~constants.state.CONNECTING
+      this._error = err
 
       queueMicrotask(() => {
-        if (this._pendingOpen) this._pendingOpen(err)
+        if (this._pendingOpen) this._continueOpen(err)
         else this.destroy(err)
       })
+
+      return this
     }
+
+    this._continueOpen()
+
+    queueMicrotask(() => {
+      if (this._state & constants.state.CLOSING) return
+
+      this.emit('connect')
+    })
 
     return this
   }
@@ -186,9 +214,13 @@ module.exports = exports = class Pipe extends Duplex {
       handle = null
     }
 
-    if (handle) this._handleQueueSize++
+    if (handle) toIPCHandle(handle)
 
-    this._handleQueue.push(handle || null)
+    if ((this._state & constants.state.CLOSING) === 0) {
+      if (handle) this._handleQueueSize++
+
+      this._handleQueue.push(handle || null)
+    }
 
     if (encoding) return super.write(chunk, encoding, cb)
 
@@ -196,11 +228,7 @@ module.exports = exports = class Pipe extends Duplex {
   }
 
   accept(target) {
-    const handle = target[ipcHandle]
-
-    if (handle === undefined) {
-      throw errors.INVALID_IPC_TARGET('Target does not implement the IPC handle protocol')
-    }
+    const handle = toIPCHandle(target)
 
     binding.accept(this._handle, handle)
 
@@ -210,12 +238,20 @@ module.exports = exports = class Pipe extends Duplex {
   }
 
   ref() {
+    this._state &= ~constants.state.UNREFED
+
+    if (this._state & constants.state.CLOSING) return this
+
     binding.ref(this._handle)
 
     return this
   }
 
   unref() {
+    this._state |= constants.state.UNREFED
+
+    if (this._state & constants.state.CLOSING) return this
+
     binding.unref(this._handle)
 
     return this
@@ -243,6 +279,12 @@ module.exports = exports = class Pipe extends Duplex {
     this._pendingWrite = cb
     this._pendingWriteBatch = batch
 
+    try {
+      coerceBatch(batch)
+    } catch (err) {
+      return this._continueWrite(err)
+    }
+
     if (this._handleQueueSize === 0) {
       this._handleQueue = []
       this._pendingWriteSegments = null
@@ -256,6 +298,7 @@ module.exports = exports = class Pipe extends Duplex {
       } catch (err) {
         this._continueWrite(err)
       }
+
       return
     }
 
@@ -268,6 +311,8 @@ module.exports = exports = class Pipe extends Duplex {
       else if (handles[i] !== null) this._handleQueueSize--
     }
 
+    // A handle rides along with a single write, so the batch is split into runs
+    // of handleless messages and one message per handle.
     const segments = []
 
     let i = 0
@@ -297,9 +342,12 @@ module.exports = exports = class Pipe extends Duplex {
     }
 
     let sendHandle = null
-    if (segment.handle !== null) sendHandle = segment.handle[ipcHandle]
 
     try {
+      // The target was checked when the write was queued, but it may have been
+      // invalidated since.
+      if (segment.handle !== null) sendHandle = toIPCHandle(segment.handle)
+
       binding.writev(this._handle, chunks, sendHandle)
     } catch (err) {
       this._continueWrite(err)
@@ -307,29 +355,46 @@ module.exports = exports = class Pipe extends Duplex {
   }
 
   _final(cb) {
-    if (this._state & constants.state.READABLE && this._state & constants.state.WRITABLE) {
-      this._pendingFinal = cb
+    const duplex = constants.state.READABLE | constants.state.WRITABLE
 
+    if ((this._state & duplex) !== duplex) return cb(null)
+
+    this._pendingFinal = cb
+
+    try {
       binding.end(this._handle)
-    } else {
-      cb(null)
+    } catch (err) {
+      this._continueFinal(err.code === 'ENOTCONN' ? null : err)
     }
   }
 
   _predestroy() {
     if (this._state & constants.state.CLOSING) return
     this._state |= constants.state.CLOSING
+    this._state &= ~constants.state.CONNECTING
+
+    this._clearHandleQueue()
 
     binding.close(this._handle)
   }
 
   _destroy(err, cb) {
-    if (this._state & constants.state.CLOSING) return cb(err)
-    this._state |= constants.state.CLOSING
+    if (this._state & constants.state.CLOSED) return cb(err)
 
     this._pendingDestroy = cb
 
+    if (this._state & constants.state.CLOSING) return
+    this._state |= constants.state.CLOSING
+    this._state &= ~constants.state.CONNECTING
+
+    this._clearHandleQueue()
+
     binding.close(this._handle)
+  }
+
+  _clearHandleQueue() {
+    this._handleQueue = []
+    this._handleQueueSize = 0
   }
 
   _continueOpen(err) {
@@ -342,19 +407,14 @@ module.exports = exports = class Pipe extends Duplex {
   _continueWrite(err) {
     if (this._pendingWrite === null) return
 
-    if (this._pendingWriteSegments === null) {
-      const cb = this._pendingWrite
-      this._pendingWrite = null
-      this._pendingWriteBatch = null
-      cb(err)
-      return
-    }
+    // A batch that carries handles is written one segment at a time, so it only
+    // settles once the last segment has been written or one of them failed.
+    if (this._pendingWriteSegments !== null) {
+      this._pendingWriteIdx++
 
-    this._pendingWriteIdx++
-
-    if (err === null && this._pendingWriteIdx < this._pendingWriteSegments.length) {
-      this._writeNextSegment()
-      return
+      if (err === null && this._pendingWriteIdx < this._pendingWriteSegments.length) {
+        return this._writeNextSegment()
+      }
     }
 
     const cb = this._pendingWrite
@@ -379,17 +439,24 @@ module.exports = exports = class Pipe extends Duplex {
     cb(null)
   }
 
+  _failConnect(err) {
+    if (this._state & constants.state.CLOSING) return
+
+    this._state &= ~constants.state.CONNECTING
+
+    if (this._pendingOpen) this._continueOpen(err)
+    else this.destroy(err)
+  }
+
   _onconnect(err) {
     if (err) {
-      this._state &= ~constants.state.CONNECTING
-
-      if (this._pendingOpen) this._continueOpen(err)
-      else this.destroy(err)
+      this._failConnect(err)
       return
     }
 
     this._state |= constants.state.CONNECTED | constants.state.READABLE | constants.state.WRITABLE
     this._state &= ~constants.state.CONNECTING
+
     this._continueOpen()
 
     this.emit('connect')
@@ -397,6 +464,7 @@ module.exports = exports = class Pipe extends Duplex {
 
   _onaccept() {
     this._state |= constants.state.CONNECTED | constants.state.READABLE | constants.state.WRITABLE
+
     this._continueOpen()
   }
 
@@ -422,19 +490,22 @@ module.exports = exports = class Pipe extends Duplex {
     }
   }
 
-  _onhandle(type) {
-    this.emit('handle', type)
-  }
-
   _onwrite(err) {
     this._continueWrite(err)
   }
 
-  _onfinal(err) {
-    this._continueFinal(err === null || err.code === 'ENOTCONN' ? null : err)
+  _onfinal() {
+    this._continueFinal(null)
+  }
+
+  _onhandle(type) {
+    this.emit('handle', type)
   }
 
   _onclose() {
+    this._state |= constants.state.CLOSED
+
+    this._continueOpen()
     this._continueDestroy()
   }
 
@@ -459,10 +530,6 @@ module.exports = exports = class Pipe extends Duplex {
 
 exports.Pipe = exports
 
-exports.pipe = function pipe() {
-  return binding.pipe()
-}
-
 exports.Server = class PipeServer extends EventEmitter {
   constructor(opts = {}, onconnection) {
     if (typeof opts === 'function') {
@@ -479,12 +546,14 @@ exports.Server = class PipeServer extends EventEmitter {
       ipc = false
     } = opts
 
+    validateInteger(readBufferSize, 'Read buffer size', 1, 0x7fffffff)
+
     this._state = 0
 
     this._readBufferSize = readBufferSize
-    this._allowHalfOpen = allowHalfOpen
-    this._pauseOnConnect = pauseOnConnect
-    this._ipc = ipc
+    this._allowHalfOpen = !!allowHalfOpen
+    this._pauseOnConnect = !!pauseOnConnect
+    this._ipc = !!ipc
 
     this._path = null
     this._connections = new Set()
@@ -499,24 +568,24 @@ exports.Server = class PipeServer extends EventEmitter {
     return (this._state & constants.state.BOUND) !== 0
   }
 
+  get closing() {
+    return (this._state & constants.state.CLOSING) !== 0
+  }
+
   address() {
-    if ((this._state & constants.state.BOUND) === 0) {
-      return null
-    }
+    if ((this._state & constants.state.BOUND) === 0) return null
 
     return this._path
   }
 
   listen(path, backlog = 511, opts = {}, onlistening) {
-    if (this._state & constants.state.BINDING || this._state & constants.state.BOUND) {
-      throw errors.SERVER_ALREADY_LISTENING('Server is already listening')
-    }
-
     if (this._state & constants.state.CLOSING) {
       throw errors.SERVER_IS_CLOSED('Server is closed')
     }
 
-    this._state |= constants.state.BINDING
+    if (this._state & (constants.state.BINDING | constants.state.BOUND)) {
+      throw errors.SERVER_ALREADY_LISTENING('Server is already listening')
+    }
 
     if (typeof backlog === 'function') {
       onlistening = backlog
@@ -527,10 +596,18 @@ exports.Server = class PipeServer extends EventEmitter {
     }
 
     if (typeof path === 'object' && path !== null) {
-      opts = path || {}
+      opts = path
       path = opts.path
-      backlog = opts.backlog || 511
+      backlog = defaultTo(opts.backlog, 511)
     }
+
+    if (backlog === null || backlog === 0) backlog = 511
+
+    validatePath(path)
+    validateInteger(backlog, 'Backlog', 0, 0x7fffffff)
+
+    this._state |= constants.state.BINDING
+    this._state &= ~constants.state.CLOSED
 
     this._handle = binding.init(
       empty,
@@ -551,12 +628,17 @@ exports.Server = class PipeServer extends EventEmitter {
       binding.bind(this._handle, path, backlog)
 
       this._path = path
+
       this._state |= constants.state.BOUND
       this._state &= ~constants.state.BINDING
 
       if (onlistening) this.once('listening', onlistening)
 
-      queueMicrotask(() => this.emit('listening'))
+      queueMicrotask(() => {
+        if (this._state & constants.state.CLOSING) return
+
+        this.emit('listening')
+      })
     } catch (err) {
       this._error = err
 
@@ -567,12 +649,20 @@ exports.Server = class PipeServer extends EventEmitter {
   }
 
   close(onclose) {
+    if (this._state & constants.state.CLOSED) {
+      if (onclose) queueMicrotask(onclose)
+
+      return this
+    }
+
     if (onclose) this.once('close', onclose)
 
-    if (this._state & constants.state.CLOSING) return
+    if (this._state & constants.state.CLOSING) return this
     this._state |= constants.state.CLOSING
+    this._state &= ~(constants.state.BINDING | constants.state.BOUND)
 
-    this._closeMaybe()
+    if (this._handle !== null) binding.close(this._handle)
+    else this._closeMaybe()
 
     return this
   }
@@ -594,10 +684,14 @@ exports.Server = class PipeServer extends EventEmitter {
   }
 
   _closeMaybe() {
-    if (this._state & constants.state.CLOSING && this._connections.size === 0) {
-      if (this._handle !== null) binding.close(this._handle)
-      else queueMicrotask(() => this.emit('close'))
-    }
+    if ((this._state & constants.state.CLOSING) === 0) return
+    if (this._state & constants.state.CLOSED) return
+    if (this._handle !== null || this._connections.size > 0) return
+
+    this._state |= constants.state.CLOSED
+    this._state &= ~constants.state.CLOSING
+
+    queueMicrotask(() => this.emit('close'))
   }
 
   _onconnection(err) {
@@ -619,6 +713,7 @@ exports.Server = class PipeServer extends EventEmitter {
       binding.accept(this._handle, pipe._handle)
 
       pipe._path = this._path
+
       pipe._onaccept()
 
       this._connections.add(pipe)
@@ -627,25 +722,27 @@ exports.Server = class PipeServer extends EventEmitter {
         this._connections.delete(pipe)
         this._closeMaybe()
       })
-
-      this.emit('connection', pipe)
     } catch (err) {
       pipe.destroy()
 
-      throw err
+      this.emit('error', err)
+      return
     }
+
+    this.emit('connection', pipe)
   }
 
   _onclose() {
     const err = this._error
 
-    this._state &= ~constants.state.BINDING
-    this._state &= ~constants.state.BOUND
+    this._state &= ~(constants.state.BINDING | constants.state.BOUND)
     this._error = null
     this._handle = null
+    this._path = null
 
     if (err) this.emit('error', err)
-    else this.emit('close')
+
+    this._closeMaybe()
   }
 }
 
@@ -659,7 +756,7 @@ exports.createConnection = function createConnection(path, opts, onconnect) {
   }
 
   if (typeof path === 'object' && path !== null) {
-    opts = path || {}
+    opts = path
     path = opts.path
   }
 
@@ -668,6 +765,82 @@ exports.createConnection = function createConnection(path, opts, onconnect) {
 
 exports.createServer = function createServer(opts, onconnection) {
   return new exports.Server(opts, onconnection)
+}
+
+exports.pipe = function pipe() {
+  return binding.pipe()
+}
+
+function toIPCHandle(target) {
+  const handle = target[ipcHandle]
+
+  if (handle === undefined) {
+    throw errors.INVALID_IPC_TARGET('Target does not implement the IPC handle protocol')
+  }
+
+  if (handle instanceof ArrayBuffer === false) {
+    throw errors.INVALID_IPC_TARGET('Target does not provide a native IPC handle')
+  }
+
+  return handle
+}
+
+function validatePath(path) {
+  if (typeof path !== 'string') {
+    throw errors.INVALID_PATH(`Path must be a string, got ${typeof path}`)
+  }
+
+  validatePathLength(path)
+}
+
+function validatePathLength(path) {
+  const length = Buffer.byteLength(path)
+
+  if (length > constants.path.MAX_LENGTH) {
+    throw errors.INVALID_PATH(
+      `Path must be at most ${constants.path.MAX_LENGTH} bytes, got ${length}`
+    )
+  }
+}
+
+function validateFd(fd) {
+  if (typeof fd !== 'number') {
+    throw errors.INVALID_FD(`File descriptor must be a number, got ${typeof fd}`)
+  }
+
+  if (!Number.isInteger(fd) || fd < 0 || fd > 0x7fffffff) {
+    throw errors.INVALID_FD(
+      `File descriptor must be an integer between 0 and ${0x7fffffff}, got ${fd}`
+    )
+  }
+}
+
+function validateInteger(value, name, min, max) {
+  if (typeof value !== 'number') {
+    throw errors.INVALID_ARGUMENT(`${name} must be a number, got ${typeof value}`)
+  }
+
+  if (!Number.isInteger(value) || value < min || value > max) {
+    throw errors.INVALID_ARGUMENT(
+      `${name} must be an integer between ${min} and ${max}, got ${value}`
+    )
+  }
+}
+
+function coerceBatch(batch) {
+  for (let i = 0; i < batch.length; i++) {
+    const chunk = batch[i].chunk
+
+    if (ArrayBuffer.isView(chunk) === false) {
+      throw errors.INVALID_ARGUMENT(`Chunk must be a string or a view, got ${typeof chunk}`)
+    }
+
+    batch[i].chunk = Buffer.coerce(chunk)
+  }
+}
+
+function defaultTo(value, fallback) {
+  return value === undefined || value === null ? fallback : value
 }
 
 function noop() {}

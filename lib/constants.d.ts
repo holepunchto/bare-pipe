@@ -7,9 +7,13 @@ declare const constants: {
     BOUND: number
     READING: number
     CLOSING: number
+    CLOSED: number
+    UNREFED: number
     READABLE: number
     WRITABLE: number
-    UNREFED: number
+  }
+  path: {
+    MAX_LENGTH: number
   }
   handle: {
     NAMED_PIPE: number

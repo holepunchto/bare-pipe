@@ -30,24 +30,20 @@ interface PipeConnectOptions {
   path?: string
 }
 
+interface PipeOpenOptions {
+  fd?: number
+}
+
 interface Pipe<M extends PipeEvents = PipeEvents> extends Duplex<M>, IPCAcceptable {
   /** Whether the pipe is currently connecting. */
   readonly connecting: boolean
   /** Whether the pipe has not yet connected. */
   readonly pending: boolean
   /**
-   * The current state of the pipe. One of `'open'`, `'readOnly'`, `'writeOnly'`, or `'opening'`.
+   * The current state of the pipe. One of `'open'`, `'opening'`, `'readOnly'`, `'writeOnly'`, or
+   * `'closed'`.
    */
-  readonly readyState: 'open' | 'readOnly' | 'writeOnly' | 'opening'
-
-  /**
-   * Open the pipe on the given file descriptor.
-   * @param fd - The file descriptor to open the pipe on.
-   * @param onconnect - Called once when the pipe emits `'connect'`.
-   */
-  open(fd: number, opts?: { fd?: number }, onconnect?: () => void): this
-  open(fd: number, onconnect: () => void): this
-  open(opts: { fd: number }, onconnect?: () => void): this
+  readonly readyState: 'open' | 'opening' | 'readOnly' | 'writeOnly' | 'closed'
 
   /**
    * Connect the pipe to `path`. `onconnect` is called when the connection is established.
@@ -59,6 +55,15 @@ interface Pipe<M extends PipeEvents = PipeEvents> extends Duplex<M>, IPCAcceptab
   connect(path: string, opts?: PipeConnectOptions, onconnect?: () => void): this
   connect(path: string, onconnect: () => void): this
   connect(opts: PipeConnectOptions, onconnect?: () => void): this
+
+  /**
+   * Open the pipe on the given file descriptor.
+   * @param fd - The file descriptor to open the pipe on.
+   * @param onconnect - Called once when the pipe emits `'connect'`.
+   */
+  open(fd: number, opts?: PipeOpenOptions, onconnect?: () => void): this
+  open(fd: number, onconnect: () => void): this
+  open(opts: PipeOpenOptions & { fd: number }, onconnect?: () => void): this
 
   /**
    * Write `chunk` to the pipe. If `handle` is given and the pipe was created with `ipc: true`, the
@@ -128,13 +133,14 @@ interface PipeServerOptions {
 }
 
 interface PipeServerListenOptions {
-  path?: string
   backlog?: number
+  path?: string
 }
 
 interface PipeServer<M extends PipeServerEvents = PipeServerEvents> extends EventEmitter<M> {
   /** Whether the server is listening. */
   readonly listening: boolean
+  readonly closing: boolean
 
   /**
    * @returns The bound path, or `null` if the server is not listening.
@@ -158,7 +164,7 @@ interface PipeServer<M extends PipeServerEvents = PipeServerEvents> extends Even
   ): this
   listen(path: string, backlog: number, onlistening: () => void): this
   listen(path: string, onlistening: () => void): this
-  listen(opts: PipeServerListenOptions): this
+  listen(opts: PipeServerListenOptions, onlistening?: () => void): this
 
   /**
    * Close the server. No new connections will be accepted. The server emits `close` after all
@@ -166,7 +172,7 @@ interface PipeServer<M extends PipeServerEvents = PipeServerEvents> extends Even
    * @param onclose - Called once when the server emits `'close'`, after all existing connections
    * have ended.
    */
-  close(onclose?: (err?: Error) => void): this
+  close(onclose?: () => void): this
 
   ref(): this
   unref(): this
@@ -178,8 +184,8 @@ declare class PipeServer<M extends PipeServerEvents = PipeServerEvents> extends 
    * `allowHalfOpen` to `true`, `pauseOnConnect` to `false`, and `ipc` to `false`.
    * @param onconnection - Called on each `'connection'` event.
    */
-  constructor(opts?: PipeServerOptions, onconnection?: () => void)
-  constructor(onconnection: () => void)
+  constructor(opts?: PipeServerOptions, onconnection?: (pipe: Pipe) => void)
+  constructor(onconnection: (pipe: Pipe) => void)
 }
 
 declare namespace Pipe {
@@ -209,7 +215,12 @@ declare namespace Pipe {
    * `allowHalfOpen` to `true`, `pauseOnConnect` to `false`, and `ipc` to `false`.
    * @param onconnection - Called on each `'connection'` event.
    */
-  export function createServer(opts?: PipeServerOptions, onconnection?: () => void): PipeServer
+  export function createServer(
+    opts?: PipeServerOptions,
+    onconnection?: (pipe: Pipe) => void
+  ): PipeServer
+
+  export function createServer(onconnection: (pipe: Pipe) => void): PipeServer
 
   /**
    * @returns A `[read, write]` pair of file descriptors connected to each other.
@@ -217,19 +228,20 @@ declare namespace Pipe {
   export function pipe(): [read: number, write: number]
 
   export {
-    type IPCAcceptable,
-    type PipeEvents,
-    type PipeOptions,
     Pipe,
-    type PipeConnectOptions,
-    type PipeServerEvents,
-    type PipeServerOptions,
-    type PipeServerListenOptions,
     type PipeServer,
     PipeServer as Server,
+    constants,
     type PipeError,
     PipeError as errors,
-    constants
+    type IPCAcceptable,
+    type PipeConnectOptions,
+    type PipeEvents,
+    type PipeOpenOptions,
+    type PipeOptions,
+    type PipeServerEvents,
+    type PipeServerListenOptions,
+    type PipeServerOptions
   }
 }
 
