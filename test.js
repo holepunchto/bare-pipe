@@ -147,7 +147,7 @@ test('socket, ipc is coerced to a boolean', async (t) => {
 
   const socket = new Pipe({ ipc: 1 })
 
-  t.is(socket.readyState, 'opening', 'constructed with a truthy ipc option')
+  t.ok(socket.pending, 'constructed with a truthy ipc option')
 
   socket.destroy()
 
@@ -165,7 +165,7 @@ test('socket, readyState and pending before connecting', async (t) => {
 
   const socket = new Pipe()
 
-  t.is(socket.readyState, 'opening', 'opening while unconnected')
+  t.is(socket.readyState, 'closed', 'closed before connect, as in Node')
   t.ok(socket.pending, 'pending while unconnected')
   t.absent(socket.connecting, 'not connecting until asked to')
 
@@ -254,6 +254,47 @@ test('socket, readyState after the peer ends', async (t) => {
   client.destroy()
 
   await new Promise((resolve) => server.close(resolve))
+})
+
+test('socket, readyState once an unconnected pipe is destroyed', async (t) => {
+  t.plan(1)
+
+  const socket = new Pipe()
+
+  socket.destroy()
+
+  await new Promise((resolve) => socket.on('close', resolve))
+
+  t.is(socket.readyState, 'closed', 'closed without ever connecting')
+})
+
+test('socket, readyState after a failed connect', async (t) => {
+  t.plan(2)
+
+  // An empty path is rejected by the underlying handle right away, so the
+  // connect has already failed by the time the next statement runs.
+  const socket = new Pipe()
+  socket.on('error', () => {})
+  socket.connect('')
+
+  t.is(socket.readyState, 'closed', 'closed as soon as the connect has failed')
+
+  await new Promise((resolve) => socket.on('close', resolve))
+
+  t.is(socket.readyState, 'closed', 'still closed once closed')
+})
+
+test('socket, readyState while a connect is in flight', async (t) => {
+  t.plan(2)
+
+  const socket = new Pipe(name())
+  socket.on('error', () => {})
+
+  t.is(socket.readyState, 'opening', 'opening while the connect is in flight')
+
+  await new Promise((resolve) => socket.on('close', resolve))
+
+  t.is(socket.readyState, 'closed', 'closed once the connect has failed')
 })
 
 test('socket, connecting is false after failed connect', async (t) => {
@@ -460,7 +501,13 @@ test('socket, open while a failed open is still settling', async (t) => {
   const socket = new Pipe(1 << 24)
   socket.on('error', () => {})
 
-  t.exception(() => socket.open(Pipe.pipe()[0]), /PIPE_IS_CLOSED/)
+  const [read, write] = Pipe.pipe()
+
+  t.exception(() => socket.open(read), /PIPE_IS_CLOSED/)
+
+  // Neither descriptor was adopted, so close them by hand.
+  fs.closeSync(read)
+  fs.closeSync(write)
 
   await new Promise((resolve) => socket.on('close', resolve))
 })

@@ -80,15 +80,17 @@ module.exports = exports = class Pipe extends Duplex {
   }
 
   get readyState() {
-    if (this.pending) return 'opening'
+    if (this._state & constants.state.CONNECTING) return 'opening'
 
-    const readable = (this._state & constants.state.READABLE) !== 0 && isReadable(this)
-    const writable =
-      (this._state & constants.state.WRITABLE) !== 0 && isWritable(this) && !isFinished(this)
+    if (this._state & constants.state.CONNECTED) {
+      const readable = (this._state & constants.state.READABLE) !== 0 && isReadable(this)
+      const writable =
+        (this._state & constants.state.WRITABLE) !== 0 && isWritable(this) && !isFinished(this)
 
-    if (readable && writable) return 'open'
-    if (readable) return 'readOnly'
-    if (writable) return 'writeOnly'
+      if (readable && writable) return 'open'
+      if (readable) return 'readOnly'
+      if (writable) return 'writeOnly'
+    }
 
     return 'closed'
   }
@@ -359,7 +361,7 @@ module.exports = exports = class Pipe extends Duplex {
     try {
       binding.end(this._handle)
     } catch (err) {
-      this._continueFinal(err)
+      this._continueFinal(err.code === 'ENOTCONN' ? null : err)
     }
   }
 
@@ -374,13 +376,15 @@ module.exports = exports = class Pipe extends Duplex {
   }
 
   _destroy(err, cb) {
-    if (this._state & constants.state.CLOSING) return cb(err)
+    if (this._state & constants.state.CLOSED) return cb(err)
+
+    this._pendingDestroy = cb
+
+    if (this._state & constants.state.CLOSING) return
     this._state |= constants.state.CLOSING
     this._state &= ~constants.state.CONNECTING
 
     this._clearHandleQueue()
-
-    this._pendingDestroy = cb
 
     binding.close(this._handle)
   }
@@ -481,8 +485,8 @@ module.exports = exports = class Pipe extends Duplex {
     this._continueWrite(err)
   }
 
-  _onfinal(err) {
-    this._continueFinal(err === null || err.code === 'ENOTCONN' ? null : err)
+  _onfinal() {
+    this._continueFinal(null)
   }
 
   _onhandle(type) {
@@ -490,6 +494,8 @@ module.exports = exports = class Pipe extends Duplex {
   }
 
   _onclose() {
+    this._state |= constants.state.CLOSED
+
     this._continueOpen()
     this._continueDestroy()
   }

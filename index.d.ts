@@ -35,7 +35,7 @@ interface PipeOpenOptions {
 interface Pipe<M extends PipeEvents = PipeEvents> extends Duplex<M>, IPCAcceptable {
   readonly connecting: boolean
   readonly pending: boolean
-  readonly readyState: 'opening' | 'open' | 'readOnly' | 'writeOnly' | 'closed'
+  readonly readyState: 'open' | 'opening' | 'readOnly' | 'writeOnly' | 'closed'
 
   connect(path: string, opts?: PipeConnectOptions, onconnect?: () => void): this
   connect(path: string, onconnect: () => void): this
