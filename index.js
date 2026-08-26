@@ -76,6 +76,8 @@ module.exports = exports = class Pipe extends Duplex {
   }
 
   get pending() {
+    if (this._state & (constants.state.CLOSING | constants.state.CLOSED)) return true
+
     return (this._state & constants.state.CONNECTED) === 0
   }
 
@@ -183,14 +185,6 @@ module.exports = exports = class Pipe extends Duplex {
       }
 
       if (onconnect) this.once('connect', onconnect)
-
-      this._continueOpen()
-
-      queueMicrotask(() => {
-        if (this._state & constants.state.CLOSING) return
-
-        this.emit('connect')
-      })
     } catch (err) {
       this._error = err
 
@@ -198,7 +192,17 @@ module.exports = exports = class Pipe extends Duplex {
         if (this._pendingOpen) this._continueOpen(err)
         else this.destroy(err)
       })
+
+      return this
     }
+
+    this._continueOpen()
+
+    queueMicrotask(() => {
+      if (this._state & constants.state.CLOSING) return
+
+      this.emit('connect')
+    })
 
     return this
   }
@@ -281,6 +285,12 @@ module.exports = exports = class Pipe extends Duplex {
   _writev(batch, cb) {
     this._pendingWrite = cb
     this._pendingWriteBatch = batch
+
+    try {
+      coerceBatch(batch)
+    } catch (err) {
+      return this._continueWrite(err)
+    }
 
     if (this._handleQueueSize === 0) {
       this._handleQueue = []
@@ -713,13 +723,14 @@ exports.Server = class PipeServer extends EventEmitter {
         this._connections.delete(pipe)
         this._closeMaybe()
       })
-
-      this.emit('connection', pipe)
     } catch (err) {
       pipe.destroy()
 
       this.emit('error', err)
+      return
     }
+
+    this.emit('connection', pipe)
   }
 
   _onclose() {
@@ -814,6 +825,18 @@ function validateInteger(value, name, min, max) {
     throw errors.INVALID_ARGUMENT(
       `${name} must be an integer between ${min} and ${max}, got ${value}`
     )
+  }
+}
+
+function coerceBatch(batch) {
+  for (let i = 0; i < batch.length; i++) {
+    const chunk = batch[i].chunk
+
+    if (ArrayBuffer.isView(chunk) === false) {
+      throw errors.INVALID_ARGUMENT(`Chunk must be a string or a view, got ${typeof chunk}`)
+    }
+
+    batch[i].chunk = Buffer.coerce(chunk)
   }
 }
 

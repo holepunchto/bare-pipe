@@ -175,7 +175,7 @@ test('socket, readyState and pending before connecting', async (t) => {
 })
 
 test('socket, readyState and pending while connected', async (t) => {
-  t.plan(4)
+  t.plan(6)
 
   const n = name()
 
@@ -195,6 +195,11 @@ test('socket, readyState and pending while connected', async (t) => {
   t.absent(client.pending, 'not pending once connected')
 
   client.destroy()
+
+  await waitFor(client, 'close')
+
+  t.is(client.readyState, 'closed', 'closed once destroyed')
+  t.ok(client.pending, 'pending again once the handle is gone, as in Node')
 
   await new Promise((resolve) => server.close(resolve))
 })
@@ -974,6 +979,54 @@ test('server, connection listener as the only argument', async (t) => {
   client.destroy()
 
   await new Promise((resolve) => server.close(resolve))
+})
+
+test('server, connection listener that throws', async (t) => {
+  t.plan(3)
+
+  const n = name()
+
+  const server = Pipe.createServer()
+
+  server.on('error', () => t.fail('a listener bug must not become a server error'))
+
+  // Capture the connection before the listener that throws runs, as listeners
+  // are called in the order they were added.
+  const accepted = new Promise((resolve) => server.on('connection', resolve))
+
+  server.on('connection', () => {
+    throw new Error('listener bug')
+  })
+
+  // The exception propagates out of the accept, as in Node, so it has to be
+  // caught here to keep it from taking the test process down with it.
+  const onuncaught = (err) => t.is(err.message, 'listener bug', 'the exception propagates')
+
+  Bare.on('uncaughtException', onuncaught)
+
+  t.teardown(() => Bare.off('uncaughtException', onuncaught))
+
+  server.listen(n)
+
+  await waitForListening(server)
+
+  const client = new Pipe(n).on('error', noop)
+
+  const pipe = await accepted
+
+  t.absent(pipe.destroying, 'the connection handed to the listener survives')
+
+  pipe.end('hello')
+
+  const data = await Promise.race([
+    new Promise((resolve) => client.on('data', resolve)),
+    new Promise((resolve) => setTimeout(() => resolve(null), 500))
+  ])
+
+  t.alike(data, Buffer.from('hello'), 'and is still usable')
+
+  client.destroy()
+  server.close()
 })
 
 test('server, pause on connect', async (t) => {
@@ -1830,6 +1883,54 @@ test('ipc, handle and data writes in the same batch', { skip: isWindows }, async
 
   await new Promise((resolve) => server.close(resolve))
 })
+
+test('socket, coerces a view that is not a buffer', async (t) => {
+  t.plan(1)
+
+  const [read, write] = Pipe.pipe()
+
+  const reader = new Pipe(read)
+  const writer = new Pipe(write)
+
+  const chunks = []
+  reader.on('data', (chunk) => chunks.push(chunk))
+
+  const buffer = new ArrayBuffer(4)
+  new Uint8Array(buffer).set([1, 2, 3, 4])
+
+  // A view that is not a buffer shares its memory with the buffer it is coerced
+  // to, so the bytes have to arrive unchanged, offset and length included.
+  writer.end(new DataView(buffer, 1, 2))
+
+  await waitFor(reader, 'end')
+
+  t.alike(Buffer.concat(chunks), Buffer.from([2, 3]))
+
+  reader.destroy()
+})
+
+test('socket, rejects a chunk that is not a view', async (t) => {
+  t.plan(1)
+
+  const [read, write] = Pipe.pipe()
+
+  const reader = new Pipe(read)
+  const writer = new Pipe(write)
+
+  reader.resume()
+
+  // An array buffer is not a view, so there is nothing for the write request to
+  // point at. It has to fail the write rather than reach the binding.
+  writer.write(new ArrayBuffer(4))
+
+  const err = await new Promise((resolve) => writer.on('error', resolve))
+
+  t.is(err.code, 'INVALID_ARGUMENT')
+
+  reader.destroy()
+})
+
+function noop() {}
 
 function waitForListening(server) {
   if (server.listening) return Promise.resolve()
