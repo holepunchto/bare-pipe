@@ -480,7 +480,10 @@ module.exports = exports = class Pipe extends Duplex {
       return
     }
 
-    const copy = Buffer.allocUnsafe(read)
+    // Unpooled, as a read too small to be given a buffer of its own would
+    // otherwise pin the whole pool it came from for as long as its consumer
+    // holds on to it.
+    const copy = Buffer.allocUnsafeSlow(read)
     copy.set(this._buffer.subarray(0, read))
 
     if (this.push(copy) === false && this.destroying === false) {
