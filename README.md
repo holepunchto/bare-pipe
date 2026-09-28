@@ -82,6 +82,28 @@ class MyTarget {
 
 TypeScript users can import the `IPCAcceptable` interface from `bare-pipe` to type the protocol.
 
+## Local access control
+
+A server can restrict its pipe to the current user, and either end can ask the operating system who is on the other end.
+
+```js
+const os = require('bare-os')
+
+const server = Pipe.createServer((pipe) => {
+  const { uid } = pipe.remoteCredentials()
+
+  if (uid !== os.userInfo().uid) return pipe.destroy()
+
+  pipe.end('hello\n')
+})
+
+server.listen({ path, ownerOnly: true })
+```
+
+`ownerOnly` applies the restriction before the server listens. On Unix the socket file is made `0600`. On Windows the pipe gets a protected DACL that allows the current user and `SYSTEM` and denies network logons, which also rejects remote clients. Keep the socket in a directory only the current user can write to, so that its path cannot be replaced.
+
+`pipe.remoteCredentials()` returns `{ pid, uid, gid, sid }`, with `null` for anything the platform cannot report. On Linux it reads `SO_PEERCRED`; on macOS and the BSDs `getpeereid()`, plus `LOCAL_PEERPID` on macOS; on Windows the peer's process ID and the user SID of its token. A remote client on Windows reports no process ID or SID, since its process ID names a process on another machine. Read the credentials while the peer is connected: on macOS the process ID is no longer available once the peer has closed its end.
+
 ## License
 
 Apache-2.0

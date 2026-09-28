@@ -4,6 +4,7 @@ const tcp = require('bare-tcp')
 const Pipe = require('.')
 
 const isWindows = Bare.platform === 'win32'
+const isLinux = Bare.platform === 'linux' || Bare.platform === 'android'
 const ipcHandle = Symbol.for('bare.ipc.handle')
 
 test('server + client', async (t) => {
@@ -987,6 +988,79 @@ test('socket, immediate destroy', async (t) => {
   server.close()
 })
 
+test('socket, remote credentials on both ends', async (t) => {
+  const n = name()
+
+  let accepted = null
+  const server = Pipe.createServer()
+  const connection = new Promise((resolve) => {
+    server.on('connection', (pipe) => {
+      accepted = pipe
+      resolve(pipe.remoteCredentials())
+    })
+  })
+  server.listen(n)
+
+  const client = new Pipe(n)
+  await new Promise((resolve) => client.on('connect', resolve))
+
+  const seenByServer = await connection
+  const seenByClient = client.remoteCredentials()
+
+  t.is(seenByServer.pid, Bare.pid, 'the server sees the client process')
+  t.is(seenByClient.pid, Bare.pid, 'the client sees the server process')
+
+  if (isWindows) {
+    t.ok(/^S-1-5-/.test(seenByServer.sid), 'the server sees a user SID')
+    t.is(seenByClient.sid, seenByServer.sid, 'both ends name the same user')
+    t.is(seenByServer.uid, null, 'no uid on Windows')
+    t.is(seenByServer.gid, null, 'no gid on Windows')
+  } else {
+    t.ok(Number.isInteger(seenByServer.uid) && seenByServer.uid >= 0, 'the server sees a uid')
+    t.ok(Number.isInteger(seenByServer.gid) && seenByServer.gid >= 0, 'the server sees a gid')
+    t.alike(seenByClient, seenByServer, 'both ends see the same account')
+    t.is(seenByServer.sid, null, 'no SID on Unix')
+  }
+
+  client.destroy()
+  accepted.destroy()
+
+  await new Promise((resolve) => server.close(resolve))
+})
+
+test('socket, remote credentials before connecting', (t) => {
+  const pipe = new Pipe()
+
+  t.exception(() => pipe.remoteCredentials(), /PIPE_NOT_CONNECTED/)
+
+  pipe.destroy()
+})
+
+test('socket, remote credentials after a failed connect', async (t) => {
+  const pipe = new Pipe(name())
+
+  await new Promise((resolve) => pipe.on('error', resolve))
+
+  t.exception(() => pipe.remoteCredentials(), /PIPE_NOT_CONNECTED/)
+})
+
+test('socket, remote credentials of a pipe that is not a socket', { skip: isWindows }, (t) => {
+  const [read, write] = Pipe.pipe()
+
+  const reader = new Pipe(read)
+  const writer = new Pipe(write)
+
+  try {
+    reader.remoteCredentials()
+    t.fail('a pipe that is not a socket has no peer')
+  } catch (err) {
+    t.is(err.code, 'ENOTSOCK')
+  }
+
+  reader.destroy()
+  writer.destroy()
+})
+
 test('server, connection listener as the only argument', async (t) => {
   t.plan(2)
 
@@ -1562,6 +1636,56 @@ test('server, ref and unref', async (t) => {
   await waitForListening(server)
 
   await new Promise((resolve) => server.close(resolve))
+})
+
+test('server, listen owner only', async (t) => {
+  const n = name()
+
+  const server = Pipe.createServer((pipe) => pipe.end('hello'))
+  server.listen({ path: n, ownerOnly: true })
+
+  await waitForListening(server)
+
+  if (!isWindows) t.is(fs.statSync(n).mode & 0o777, 0o600, 'the socket is private to its owner')
+
+  const client = new Pipe(n)
+  const data = await new Promise((resolve, reject) => {
+    client.on('data', resolve).on('error', reject)
+  })
+
+  t.alike(data, Buffer.from('hello'), 'the owner can still connect')
+
+  if (isWindows) {
+    t.ok(/^S-1-5-/.test(client.remoteCredentials().sid), 'the server runs as a user SID')
+  }
+
+  client.destroy()
+
+  await new Promise((resolve) => server.close(resolve))
+})
+
+test('server, listen owner only with a backlog', { skip: isWindows }, async (t) => {
+  const n = name()
+
+  const server = Pipe.createServer()
+  server.listen(n, 16, { ownerOnly: true })
+
+  await waitForListening(server)
+
+  t.is(fs.statSync(n).mode & 0o777, 0o600)
+
+  await new Promise((resolve) => server.close(resolve))
+})
+
+test('server, listen owner only on an abstract socket', { skip: !isLinux }, (t) => {
+  t.plan(2)
+
+  const server = Pipe.createServer()
+  server.on('error', (err) => {
+    t.is(err.code, 'EINVAL', 'an abstract socket has no mode to restrict')
+    t.absent(server.listening)
+  })
+  server.listen({ path: '\0' + name().slice(5), ownerOnly: true })
 })
 
 test('createConnection, arguments', async (t) => {

@@ -101,6 +101,14 @@ module.exports = exports = class Pipe extends Duplex {
     return this._handle
   }
 
+  remoteCredentials() {
+    if ((this._state & constants.state.CONNECTED) === 0) {
+      throw errors.PIPE_NOT_CONNECTED('Pipe is not connected')
+    }
+
+    return binding.remoteCredentials(this._handle)
+  }
+
   connect(path, opts = {}, onconnect) {
     if ((this._state & constants.state.CLOSING) !== 0 || this._error !== null) {
       throw errors.PIPE_IS_CLOSED('Pipe is closed')
@@ -606,6 +614,8 @@ exports.Server = class PipeServer extends EventEmitter {
 
     if (backlog === null || backlog === 0) backlog = 511
 
+    const { ownerOnly = false } = opts || {}
+
     validatePath(path)
     validateInteger(backlog, 'Backlog', 0, 0x7fffffff)
 
@@ -628,7 +638,7 @@ exports.Server = class PipeServer extends EventEmitter {
     if (this._state & constants.state.UNREFED) binding.unref(this._handle)
 
     try {
-      binding.bind(this._handle, path, backlog)
+      binding.bind(this._handle, path, backlog, !!ownerOnly)
 
       this._path = path
 

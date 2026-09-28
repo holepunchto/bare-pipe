@@ -26,6 +26,20 @@ interface PipeOptions {
   readBufferSize?: number
 }
 
+interface PipeCredentials {
+  /** The peer's process ID, or `null` where the platform cannot report it. */
+  pid: number | null
+  /** The peer's user ID on Unix; `null` on Windows. */
+  uid: number | null
+  /** The peer's group ID on Unix; `null` on Windows. */
+  gid: number | null
+  /**
+   * The peer's user SID on Windows, such as `'S-1-5-21-…'`; `null` on Unix, for a remote client,
+   * and for a peer whose token the caller may not query.
+   */
+  sid: string | null
+}
+
 interface PipeConnectOptions {
   path?: string
 }
@@ -96,6 +110,17 @@ interface Pipe<M extends PipeEvents = PipeEvents> extends Duplex<M>, IPCAcceptab
    */
   accept<T extends IPCAcceptable>(target: T): T
 
+  /**
+   * The operating system's account of the process on the other end of the pipe, read from the
+   * kernel rather than from anything the peer sent. On Unix it is taken from `SO_PEERCRED` or
+   * `getpeereid()` and reflects the peer at the time it connected. On Windows the process ID comes
+   * from `GetNamedPipeClientProcessId()` or `GetNamedPipeServerProcessId()`, and the SID from that
+   * process's token.
+   * @returns The peer's credentials.
+   * @throws {PIPE_NOT_CONNECTED} the pipe is not connected.
+   */
+  remoteCredentials(): PipeCredentials
+
   /** Ref the pipe, preventing the process from exiting. */
   ref(): this
   /** Unref the pipe, allowing the process to exit. */
@@ -134,6 +159,12 @@ interface PipeServerOptions {
 
 interface PipeServerListenOptions {
   backlog?: number
+  /**
+   * Restrict the pipe to the current user before any client can connect. On Unix the socket file
+   * is made `0600`; on Windows the pipe gets a protected DACL allowing only the current user and
+   * `SYSTEM`, and denying network logons.
+   */
+  ownerOnly?: boolean
   path?: string
 }
 
@@ -236,6 +267,7 @@ declare namespace Pipe {
     PipeError as errors,
     type IPCAcceptable,
     type PipeConnectOptions,
+    type PipeCredentials,
     type PipeEvents,
     type PipeOpenOptions,
     type PipeOptions,

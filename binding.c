@@ -1,3 +1,7 @@
+#if defined(__linux__) || defined(__ANDROID__)
+#define _GNU_SOURCE
+#endif
+
 #include <assert.h>
 #include <bare.h>
 #include <js.h>
@@ -6,6 +10,22 @@
 #include <stdlib.h>
 #include <utf.h>
 #include <uv.h>
+
+#ifdef _WIN32
+#include <aclapi.h>
+#include <sddl.h>
+#include <stdio.h>
+#else
+#include <errno.h>
+#include <sys/socket.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <unistd.h>
+#if defined(__APPLE__)
+#include <sys/ucred.h>
+#include <sys/un.h>
+#endif
+#endif
 
 typedef utf8_t bare_pipe_path_t[4096 + 1 /* NULL */];
 
@@ -146,6 +166,112 @@ bare_pipe__is_handle(js_env_t *env, js_value_t *value, uv_loop_t *loop, uv_strea
 
   return true;
 }
+
+#ifdef _WIN32
+
+static int
+bare_pipe__token_sid(HANDLE token, char **result) {
+  DWORD len = 0;
+  GetTokenInformation(token, TokenUser, NULL, 0, &len);
+
+  DWORD error = GetLastError();
+  if (error != ERROR_INSUFFICIENT_BUFFER) return uv_translate_sys_error(error);
+
+  TOKEN_USER *user = malloc(len);
+  if (user == NULL) return UV_ENOMEM;
+
+  int err = 0;
+
+  if (!GetTokenInformation(token, TokenUser, user, len, &len)) {
+    err = uv_translate_sys_error(GetLastError());
+  } else if (!ConvertSidToStringSidA(user->User.Sid, result)) {
+    err = uv_translate_sys_error(GetLastError());
+  }
+
+  free(user);
+
+  return err;
+}
+
+static int
+bare_pipe__process_sid(DWORD pid, char **result) {
+  HANDLE process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
+  if (process == NULL) return uv_translate_sys_error(GetLastError());
+
+  HANDLE token;
+  BOOL ok = OpenProcessToken(process, TOKEN_QUERY, &token);
+  DWORD error = GetLastError();
+
+  CloseHandle(process);
+
+  if (!ok) return uv_translate_sys_error(error);
+
+  int err = bare_pipe__token_sid(token, result);
+
+  CloseHandle(token);
+
+  return err;
+}
+
+static int
+bare_pipe__restrict_to_owner(uv_pipe_t *handle, const char *path, size_t path_len) {
+  HANDLE token;
+  if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token)) {
+    return uv_translate_sys_error(GetLastError());
+  }
+
+  char *sid;
+  int err = bare_pipe__token_sid(token, &sid);
+
+  CloseHandle(token);
+
+  if (err < 0) return err;
+
+  // Protected, so nothing is inherited: the current user and SYSTEM are
+  // allowed, and network logons are denied even for the current user, which
+  // stands in for PIPE_REJECT_REMOTE_CLIENTS that libuv does not set.
+  char sddl[256];
+  int written = snprintf(sddl, sizeof(sddl), "D:P(D;;GA;;;NU)(A;;GA;;;%s)(A;;GA;;;SY)", sid);
+
+  LocalFree(sid);
+
+  if (written < 0 || (size_t) written >= sizeof(sddl)) return UV_EINVAL;
+
+  PSECURITY_DESCRIPTOR sd;
+  if (!ConvertStringSecurityDescriptorToSecurityDescriptorA(sddl, SDDL_REVISION_1, &sd, NULL)) {
+    return uv_translate_sys_error(GetLastError());
+  }
+
+  BOOL present, defaulted;
+  PACL dacl;
+  if (!GetSecurityDescriptorDacl(sd, &present, &dacl, &defaulted)) {
+    err = uv_translate_sys_error(GetLastError());
+  } else {
+    // The descriptor lives on the pipe, not the instance: libuv's own
+    // uv_pipe_chmod() relies on the same handle to change every instance.
+    DWORD error = SetSecurityInfo(handle->handle, SE_KERNEL_OBJECT, DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION, NULL, NULL, dacl, NULL);
+
+    if (error != ERROR_SUCCESS) err = uv_translate_sys_error(error);
+  }
+
+  LocalFree(sd);
+
+  return err;
+}
+
+#else
+
+static int
+bare_pipe__restrict_to_owner(uv_pipe_t *handle, const char *path, size_t path_len) {
+  // An abstract socket has no file, and so no mode to restrict.
+  if (path_len == 0 || path[0] == '\0') return UV_EINVAL;
+
+  if (chmod(path, S_IRUSR | S_IWUSR) != 0) return uv_translate_sys_error(errno);
+
+  return 0;
+}
+
+#endif
 
 static void
 bare_pipe__on_connection(uv_stream_t *server, int status) {
@@ -605,13 +731,13 @@ static js_value_t *
 bare_pipe_bind(js_env_t *env, js_callback_info_t *info) {
   int err;
 
-  size_t argc = 3;
-  js_value_t *argv[3];
+  size_t argc = 4;
+  js_value_t *argv[4];
 
   err = js_get_callback_info(env, info, &argc, argv, NULL, NULL);
   assert(err == 0);
 
-  assert(argc == 3);
+  assert(argc == 4);
 
   bare_pipe_t *pipe;
   err = js_get_arraybuffer_info(env, argv[0], (void **) &pipe, NULL);
@@ -625,6 +751,10 @@ bare_pipe_bind(js_env_t *env, js_callback_info_t *info) {
   err = js_get_value_uint32(env, argv[2], &backlog);
   assert(err == 0);
 
+  bool owner_only;
+  err = js_get_value_bool(env, argv[3], &owner_only);
+  assert(err == 0);
+
   err = uv_pipe_bind2(&pipe->handle, (char *) path, path_len, UV_PIPE_NO_TRUNCATE);
 
   if (err < 0) {
@@ -632,6 +762,23 @@ bare_pipe_bind(js_env_t *env, js_callback_info_t *info) {
     assert(err == 0);
 
     return NULL;
+  }
+
+  // Restricted before listen. On Unix a client cannot connect before listen, so
+  // no connection is ever accepted under the default mode. On Windows the first
+  // instance exists from bind, which leaves only the instructions between the
+  // two calls; the remaining instances are created by listen, after the DACL.
+  if (owner_only) {
+    path[path_len] = '\0';
+
+    err = bare_pipe__restrict_to_owner(&pipe->handle, (char *) path, path_len);
+
+    if (err < 0) {
+      err = js_throw_error(env, uv_err_name(err), uv_strerror(err));
+      assert(err == 0);
+
+      return NULL;
+    }
   }
 
   err = uv_listen((uv_stream_t *) &pipe->handle, (int) backlog, bare_pipe__on_connection);
@@ -954,6 +1101,150 @@ bare_pipe_unref(js_env_t *env, js_callback_info_t *info) {
   return NULL;
 }
 
+static inline void
+bare_pipe__set_id(js_env_t *env, js_value_t *object, const char *name, int64_t id) {
+  int err;
+
+  js_value_t *val;
+
+  if (id < 0) err = js_get_null(env, &val);
+  else err = js_create_int64(env, id, &val);
+  assert(err == 0);
+
+  err = js_set_named_property(env, object, name, val);
+  assert(err == 0);
+}
+
+typedef struct {
+  int64_t pid;
+  int64_t uid;
+  int64_t gid;
+  char *sid;
+} bare_pipe_credentials_t;
+
+#if defined(_WIN32)
+
+static int
+bare_pipe__peer_credentials(uv_os_fd_t fd, bare_pipe_credentials_t *result) {
+  DWORD flags;
+  if (!GetNamedPipeInfo(fd, &flags, NULL, NULL, NULL)) return uv_translate_sys_error(GetLastError());
+
+  ULONG pid;
+
+  if (flags & PIPE_SERVER_END) {
+    // A remote client's process ID names a process on another machine, so it
+    // is never reported, and neither is anything derived from it.
+    WCHAR host[MAX_COMPUTERNAME_LENGTH + 1];
+    if (GetNamedPipeClientComputerNameW(fd, host, sizeof(host))) return 0;
+
+    if (!GetNamedPipeClientProcessId(fd, &pid)) return uv_translate_sys_error(GetLastError());
+  } else {
+    if (!GetNamedPipeServerProcessId(fd, &pid)) return uv_translate_sys_error(GetLastError());
+  }
+
+  result->pid = pid;
+
+  // A peer whose token the caller may not query, such as an elevated process
+  // seen from an unelevated one, reports no SID rather than failing.
+  if (bare_pipe__process_sid(pid, &result->sid) < 0) result->sid = NULL;
+
+  return 0;
+}
+
+#elif defined(__linux__) || defined(__ANDROID__)
+
+static int
+bare_pipe__peer_credentials(uv_os_fd_t fd, bare_pipe_credentials_t *result) {
+  struct ucred cred;
+  socklen_t len = sizeof(cred);
+
+  if (getsockopt(fd, SOL_SOCKET, SO_PEERCRED, &cred, &len) != 0) return uv_translate_sys_error(errno);
+
+  result->pid = cred.pid;
+  result->uid = cred.uid;
+  result->gid = cred.gid;
+
+  return 0;
+}
+
+#else
+
+static int
+bare_pipe__peer_credentials(uv_os_fd_t fd, bare_pipe_credentials_t *result) {
+  uid_t uid;
+  gid_t gid;
+
+  if (getpeereid(fd, &uid, &gid) != 0) return uv_translate_sys_error(errno);
+
+  result->uid = uid;
+  result->gid = gid;
+
+#if defined(__APPLE__)
+  pid_t pid;
+  socklen_t len = sizeof(pid);
+
+  if (getsockopt(fd, SOL_LOCAL, LOCAL_PEERPID, &pid, &len) == 0) result->pid = pid;
+#endif
+
+  return 0;
+}
+
+#endif
+
+static js_value_t *
+bare_pipe_remote_credentials(js_env_t *env, js_callback_info_t *info) {
+  int err;
+
+  size_t argc = 1;
+  js_value_t *argv[1];
+
+  err = js_get_callback_info(env, info, &argc, argv, NULL, NULL);
+  assert(err == 0);
+
+  assert(argc == 1);
+
+  bare_pipe_t *pipe;
+  err = js_get_arraybuffer_info(env, argv[0], (void **) &pipe, NULL);
+  assert(err == 0);
+
+  bare_pipe_credentials_t credentials = {-1, -1, -1, NULL};
+
+  uv_os_fd_t fd;
+  err = uv_fileno((uv_handle_t *) &pipe->handle, &fd);
+
+  if (err == 0) err = bare_pipe__peer_credentials(fd, &credentials);
+
+  if (err < 0) {
+    err = js_throw_error(env, uv_err_name(err), uv_strerror(err));
+    assert(err == 0);
+
+    return NULL;
+  }
+
+  js_value_t *result;
+  err = js_create_object(env, &result);
+  assert(err == 0);
+
+  bare_pipe__set_id(env, result, "pid", credentials.pid);
+  bare_pipe__set_id(env, result, "uid", credentials.uid);
+  bare_pipe__set_id(env, result, "gid", credentials.gid);
+
+  js_value_t *sid;
+
+  if (credentials.sid == NULL) err = js_get_null(env, &sid);
+  else err = js_create_string_utf8(env, (utf8_t *) credentials.sid, -1, &sid);
+  assert(err == 0);
+
+  err = js_set_named_property(env, result, "sid", sid);
+  assert(err == 0);
+
+#if defined(_WIN32)
+  if (credentials.sid != NULL) LocalFree(credentials.sid);
+#endif
+
+  return result;
+}
+
 static js_value_t *
 bare_pipe_pipe(js_env_t *env, js_callback_info_t *info) {
   int err;
@@ -1015,6 +1306,7 @@ bare_pipe_exports(js_env_t *env, js_value_t *exports) {
   V("ref", bare_pipe_ref)
   V("unref", bare_pipe_unref)
   V("pipe", bare_pipe_pipe)
+  V("remoteCredentials", bare_pipe_remote_credentials)
 #undef V
 
 #define V(name, n) \
