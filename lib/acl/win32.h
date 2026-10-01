@@ -30,6 +30,11 @@ NTSYSAPI NTSTATUS NTAPI
 NtQueryVolumeInformationFile(HANDLE FileHandle, PIO_STATUS_BLOCK IoStatusBlock, PVOID FsInformation, ULONG Length, ULONG FsInformationClass);
 #endif
 
+typedef struct {
+  BYTE sid[SECURITY_MAX_SID_SIZE];
+  DWORD integrity;
+} bare_pipe_acl__process_t;
+
 static inline uint64_t
 bare_pipe_acl__filetime(const FILETIME *time) {
   return ((uint64_t) time->dwHighDateTime << 32) | time->dwLowDateTime;
@@ -45,135 +50,84 @@ bare_pipe_acl_timestamp(void) {
 }
 
 static int
-bare_pipe_acl__token_user(HANDLE token, TOKEN_USER **result) {
-  DWORD len = 0;
-  GetTokenInformation(token, TokenUser, NULL, 0, &len);
+bare_pipe_acl__sid_string(PSID sid, char **result) {
+  char *string;
+  if (!ConvertSidToStringSidA(sid, &string)) return uv_translate_sys_error(GetLastError());
 
-  DWORD error = GetLastError();
-  if (error != ERROR_INSUFFICIENT_BUFFER) return uv_translate_sys_error(error);
-
-  TOKEN_USER *user = malloc(len);
-  if (user == NULL) return UV_ENOMEM;
-
-  if (!GetTokenInformation(token, TokenUser, user, len, &len)) {
-    error = GetLastError();
-
-    free(user);
-
-    return uv_translate_sys_error(error);
-  }
-
-  *result = user;
+  *result = string;
 
   return 0;
 }
 
 static int
-bare_pipe_acl__token_sid(HANDLE token, char **result) {
-  TOKEN_USER *user;
-  int err = bare_pipe_acl__token_user(token, &user);
-  if (err < 0) return err;
-
-  if (!ConvertSidToStringSidA(user->User.Sid, result)) err = uv_translate_sys_error(GetLastError());
-
-  free(user);
-
-  return err;
-}
-
-static int
-bare_pipe_acl__token_integrity(HANDLE token, DWORD *result) {
+bare_pipe_acl__token_information(HANDLE token, TOKEN_INFORMATION_CLASS type, void **result) {
   DWORD len = 0;
-  GetTokenInformation(token, TokenIntegrityLevel, NULL, 0, &len);
+  GetTokenInformation(token, type, NULL, 0, &len);
 
   DWORD error = GetLastError();
   if (error != ERROR_INSUFFICIENT_BUFFER) return uv_translate_sys_error(error);
 
-  TOKEN_MANDATORY_LABEL *label = malloc(len);
-  if (label == NULL) return UV_ENOMEM;
+  void *info = malloc(len);
+  if (info == NULL) return UV_ENOMEM;
 
-  int err = 0;
+  if (!GetTokenInformation(token, type, info, len, &len)) {
+    error = GetLastError();
 
-  if (!GetTokenInformation(token, TokenIntegrityLevel, label, len, &len)) {
-    err = uv_translate_sys_error(GetLastError());
-  } else {
-    PSID sid = label->Label.Sid;
+    free(info);
 
-    *result = *GetSidSubAuthority(sid, *GetSidSubAuthorityCount(sid) - 1);
+    return uv_translate_sys_error(error);
   }
 
+  *result = info;
+
+  return 0;
+}
+
+static int
+bare_pipe_acl__process(HANDLE process, bare_pipe_acl__process_t *result) {
+  HANDLE token;
+  if (!OpenProcessToken(process, TOKEN_QUERY, &token)) return uv_translate_sys_error(GetLastError());
+
+  TOKEN_USER *user = NULL;
+  TOKEN_MANDATORY_LABEL *label = NULL;
+
+  int err = bare_pipe_acl__token_information(token, TokenUser, (void **) &user);
+  if (err == 0) err = bare_pipe_acl__token_information(token, TokenIntegrityLevel, (void **) &label);
+
+  CloseHandle(token);
+
+  if (err == 0 && !CopySid(sizeof(result->sid), result->sid, user->User.Sid)) {
+    err = uv_translate_sys_error(GetLastError());
+  }
+
+  if (err == 0) {
+    PSID sid = label->Label.Sid;
+
+    result->integrity = *GetSidSubAuthority(sid, *GetSidSubAuthorityCount(sid) - 1);
+  }
+
+  free(user);
   free(label);
 
   return err;
 }
 
-typedef struct {
-  BYTE sid[SECURITY_MAX_SID_SIZE];
-  DWORD integrity;
-} bare_pipe_acl__process_t;
-
-static uv_once_t bare_pipe_acl__current_guard = UV_ONCE_INIT;
-static bare_pipe_acl__process_t bare_pipe_acl__current_process;
-static int bare_pipe_acl__current_err;
-
-static void
-bare_pipe_acl__on_current_once(void) {
-  HANDLE token;
-  if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token)) {
-    bare_pipe_acl__current_err = uv_translate_sys_error(GetLastError());
-
-    return;
-  }
-
-  TOKEN_USER *user;
-  int err = bare_pipe_acl__token_user(token, &user);
-
-  if (err == 0) {
-    if (!CopySid(sizeof(bare_pipe_acl__current_process.sid), bare_pipe_acl__current_process.sid, user->User.Sid)) {
-      err = uv_translate_sys_error(GetLastError());
-    }
-
-    free(user);
-  }
-
-  if (err == 0) err = bare_pipe_acl__token_integrity(token, &bare_pipe_acl__current_process.integrity);
-
-  CloseHandle(token);
-
-  bare_pipe_acl__current_err = err;
-}
-
-// The user and integrity level of a process are fixed for its lifetime, save
-// for lowering the integrity level, which only makes the cached level stricter.
 static int
-bare_pipe_acl__current(const bare_pipe_acl__process_t **result) {
-  uv_once(&bare_pipe_acl__current_guard, bare_pipe_acl__on_current_once);
-
-  if (bare_pipe_acl__current_err < 0) return bare_pipe_acl__current_err;
-
-  *result = &bare_pipe_acl__current_process;
-
-  return 0;
-}
-
-static int
-bare_pipe_acl__process_token(DWORD pid, uint64_t connected, HANDLE *result) {
+bare_pipe_acl__peer_process(DWORD pid, uint64_t connected, bare_pipe_acl__process_t *result) {
   HANDLE process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
   if (process == NULL) return uv_translate_sys_error(GetLastError());
 
-  int err = 0;
-
+  int err;
   FILETIME created, exited, kernel, user;
 
   if (!GetProcessTimes(process, &created, &exited, &kernel, &user)) {
     err = uv_translate_sys_error(GetLastError());
   } else if (bare_pipe_acl__filetime(&created) > connected) {
-    // The peer was alive when the pipe connected, so a process created since
-    // has reused its ID after it exited. A process created in the same tick as
-    // the accept is let through, as the clock cannot tell it from the peer.
+    // Created after the pipe connected, so it has reused the ID of a peer that
+    // exited.
     err = UV_ESRCH;
-  } else if (!OpenProcessToken(process, TOKEN_QUERY, result)) {
-    err = uv_translate_sys_error(GetLastError());
+  } else {
+    err = bare_pipe_acl__process(process, result);
   }
 
   CloseHandle(process);
@@ -182,22 +136,6 @@ bare_pipe_acl__process_token(DWORD pid, uint64_t connected, HANDLE *result) {
 }
 
 static int
-bare_pipe_acl__process_sid(DWORD pid, uint64_t connected, char **result) {
-  HANDLE token;
-  int err = bare_pipe_acl__process_token(pid, connected, &token);
-  if (err < 0) return err;
-
-  err = bare_pipe_acl__token_sid(token, result);
-
-  CloseHandle(token);
-
-  return err;
-}
-
-// The kernel records the owner when the pipe is created, and a creator may only
-// name a SID from its own token unless it holds SeRestorePrivilege, so the owner
-// cannot be claimed by another user short of that privilege.
-static int
 bare_pipe_acl__owner_sid(HANDLE handle, char **result) {
   PSID owner;
   PSECURITY_DESCRIPTOR sd;
@@ -205,9 +143,7 @@ bare_pipe_acl__owner_sid(HANDLE handle, char **result) {
   DWORD error = GetSecurityInfo(handle, SE_KERNEL_OBJECT, OWNER_SECURITY_INFORMATION, &owner, NULL, NULL, NULL, &sd);
   if (error != ERROR_SUCCESS) return uv_translate_sys_error(error);
 
-  int err = 0;
-
-  if (!ConvertSidToStringSidA(owner, result)) err = uv_translate_sys_error(GetLastError());
+  int err = bare_pipe_acl__sid_string(owner, result);
 
   LocalFree(sd);
 
@@ -216,48 +152,32 @@ bare_pipe_acl__owner_sid(HANDLE handle, char **result) {
 
 static int
 bare_pipe_acl_restrict_to_owner(uv_pipe_t *handle, const char *path) {
-  const bare_pipe_acl__process_t *current;
-  int err = bare_pipe_acl__current(&current);
+  bare_pipe_acl__process_t current;
+  int err = bare_pipe_acl__process(GetCurrentProcess(), &current);
   if (err < 0) return err;
 
   char *sid;
-  if (!ConvertSidToStringSidA((PSID) current->sid, &sid)) return uv_translate_sys_error(GetLastError());
+  err = bare_pipe_acl__sid_string((PSID) current.sid, &sid);
+  if (err < 0) return err;
 
-  // Protected, so nothing is inherited: only the current user and SYSTEM are
-  // allowed. Remote clients, clients of another user, and clients below the
-  // integrity level of the server are instead rejected as they are accepted.
-  const char *format = "D:P(A;;GA;;;%s)(A;;GA;;;SY)";
-
-  size_t len = snprintf(NULL, 0, format, sid) + 1 /* NULL */;
-
-  char *sddl = malloc(len);
-
-  if (sddl == NULL) {
-    LocalFree(sid);
-
-    return UV_ENOMEM;
-  }
-
-  snprintf(sddl, len, format, sid);
+  char sddl[256];
+  snprintf(sddl, sizeof(sddl), "D:P(A;;GA;;;%s)(A;;GA;;;SY)", sid);
 
   LocalFree(sid);
 
   PSECURITY_DESCRIPTOR sd;
-  BOOL ok = ConvertStringSecurityDescriptorToSecurityDescriptorA(sddl, SDDL_REVISION_1, &sd, NULL);
-  DWORD error = GetLastError();
-
-  free(sddl);
-
-  if (!ok) return uv_translate_sys_error(error);
+  if (!ConvertStringSecurityDescriptorToSecurityDescriptorA(sddl, SDDL_REVISION_1, &sd, NULL)) {
+    return uv_translate_sys_error(GetLastError());
+  }
 
   BOOL present, defaulted;
   PACL dacl;
+
   if (!GetSecurityDescriptorDacl(sd, &present, &dacl, &defaulted)) {
     err = uv_translate_sys_error(GetLastError());
   } else {
-    // The descriptor lives on the pipe, not the instance: libuv's own
-    // uv_pipe_chmod() relies on the same handle to change every instance.
-    error = SetSecurityInfo(handle->handle, SE_KERNEL_OBJECT, DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION, NULL, NULL, dacl, NULL);
+    // Applies to every instance of the pipe, as uv_pipe_chmod() relies on too.
+    DWORD error = SetSecurityInfo(handle->handle, SE_KERNEL_OBJECT, DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION, NULL, NULL, dacl, NULL);
 
     if (error != ERROR_SUCCESS) err = uv_translate_sys_error(error);
   }
@@ -266,10 +186,9 @@ bare_pipe_acl_restrict_to_owner(uv_pipe_t *handle, const char *path) {
 
   if (err < 0) return err;
 
-  // The first instance exists from bind, and a client that opened it before
-  // the DACL changed keeps its connection. Drop it before listen accepts it.
+  // Drop a client that opened the first instance before the DACL changed.
   if (!DisconnectNamedPipe(handle->handle)) {
-    error = GetLastError();
+    DWORD error = GetLastError();
 
     if (error != ERROR_PIPE_NOT_CONNECTED) return uv_translate_sys_error(error);
   }
@@ -295,57 +214,6 @@ bare_pipe_acl__is_local_client(HANDLE handle, bool *result) {
   return 0;
 }
 
-// Stands in for PIPE_REJECT_REMOTE_CLIENTS, which libuv does not set, and for a
-// mandatory label, which libuv opens the pipe without the rights to set. An
-// unlabeled pipe admits processes of the current user at a lower integrity
-// level, such as the unelevated half of an elevated administrator. The DACL is
-// also checked against the token the client connected with, which may be one
-// it impersonated, so the user of the client process is checked as well. A
-// client whose token cannot be queried is rejected, as a process may deny
-// access to its own token.
-static int
-bare_pipe_acl_is_owner_client(uv_pipe_t *client, uint64_t connected, bool *result) {
-  HANDLE handle = client->handle;
-
-  int err = bare_pipe_acl__is_local_client(handle, result);
-  if (err < 0 || !*result) return err;
-
-  const bare_pipe_acl__process_t *current;
-  err = bare_pipe_acl__current(&current);
-  if (err < 0) return err;
-
-  ULONG pid;
-  if (!GetNamedPipeClientProcessId(handle, &pid)) return uv_translate_sys_error(GetLastError());
-
-  HANDLE token;
-  err = bare_pipe_acl__process_token(pid, connected, &token);
-  if (err < 0) return err;
-
-  TOKEN_USER *user;
-  err = bare_pipe_acl__token_user(token, &user);
-
-  if (err < 0) {
-    CloseHandle(token);
-
-    return err;
-  }
-
-  DWORD level;
-  err = bare_pipe_acl__token_integrity(token, &level);
-
-  CloseHandle(token);
-
-  if (err == 0) {
-    PSID sid = user->User.Sid;
-
-    *result = (EqualSid(sid, (PSID) current->sid) || IsWellKnownSid(sid, WinLocalSystemSid)) && level >= current->integrity;
-  }
-
-  free(user);
-
-  return err;
-}
-
 // Asks the handle rather than the name it was opened by, as Win32 resolves a
 // name such as \\.\pipe\..\UNC\host\pipe\name to a pipe on another machine.
 static int
@@ -361,7 +229,34 @@ bare_pipe_acl__is_local_server(HANDLE handle, bool *result) {
   return 0;
 }
 
-// A connection time of 0 means that it is unknown.
+// Stands in for PIPE_REJECT_REMOTE_CLIENTS and a mandatory label, which libuv
+// does not set, and for the DACL being checked against a token the client may
+// have impersonated.
+static int
+bare_pipe_acl_is_owner_client(uv_pipe_t *client, uint64_t connected, bool *result) {
+  HANDLE handle = client->handle;
+
+  int err = bare_pipe_acl__is_local_client(handle, result);
+  if (err < 0 || !*result) return err;
+
+  ULONG pid;
+  if (!GetNamedPipeClientProcessId(handle, &pid)) return uv_translate_sys_error(GetLastError());
+
+  bare_pipe_acl__process_t current;
+  err = bare_pipe_acl__process(GetCurrentProcess(), &current);
+  if (err < 0) return err;
+
+  bare_pipe_acl__process_t peer;
+  err = bare_pipe_acl__peer_process(pid, connected, &peer);
+  if (err < 0) return err;
+
+  PSID sid = (PSID) peer.sid;
+
+  *result = (EqualSid(sid, (PSID) current.sid) || IsWellKnownSid(sid, WinLocalSystemSid)) && peer.integrity >= current.integrity;
+
+  return 0;
+}
+
 static int
 bare_pipe_acl_peer_credentials(uv_pipe_t *pipe, uint64_t connected, bare_pipe_acl_credentials_t *result) {
   HANDLE handle = pipe->handle;
@@ -372,45 +267,29 @@ bare_pipe_acl_peer_credentials(uv_pipe_t *pipe, uint64_t connected, bare_pipe_ac
   ULONG pid;
   bool local;
 
-  // A remote peer's process ID names a process on another machine, so it is
-  // never reported, and neither is anything derived from it.
   if (flags & PIPE_SERVER_END) {
+    // Only a remote client can choose the process ID it reports.
     int err = bare_pipe_acl__is_local_client(handle, &local);
-    if (err < 0) return err;
+    if (err < 0 || !local) return err;
 
-    if (!local) return 0;
-
-    // The process ID is fixed when the client opens the pipe, so a client can
-    // hand its end to another process and exit to have its ID reused. Only a
-    // remote client can name another ID outright, and is never asked. See
-    // https://projectzero.google/2019/09/windows-exploitation-tricks-spoofing.html
     if (!GetNamedPipeClientProcessId(handle, &pid)) return uv_translate_sys_error(GetLastError());
 
-    result->pid = pid;
+    bare_pipe_acl__process_t peer;
 
-    // Without knowing when the pipe connected, a process that reused the ID of
-    // a peer that exited cannot be told apart from the peer.
-    if (connected == 0) return 0;
-
-    // A peer whose token the caller may not query, such as an elevated process
-    // seen from an unelevated one, or whose ID has been reused, reports no SID
-    // rather than failing.
-    if (bare_pipe_acl__process_sid(pid, connected, &result->sid) < 0) result->sid = NULL;
+    // Without the time of the connection, a reused process ID goes unnoticed.
+    if (connected != 0 && bare_pipe_acl__peer_process(pid, connected, &peer) == 0) {
+      bare_pipe_acl__sid_string((PSID) peer.sid, &result->sid);
+    }
   } else {
     int err = bare_pipe_acl__is_local_server(handle, &local);
-    if (err < 0) return err;
-
-    if (!local) return 0;
+    if (err < 0 || !local) return err;
 
     if (!GetNamedPipeServerProcessId(handle, &pid)) return uv_translate_sys_error(GetLastError());
 
-    result->pid = pid;
-
-    // The server's process ID names the process that created the instance,
-    // which need not be alive, so its ID may have been reused by the time the
-    // client connects. The owner of the pipe identifies the server instead.
-    if (bare_pipe_acl__owner_sid(handle, &result->sid) < 0) result->sid = NULL;
+    bare_pipe_acl__owner_sid(handle, &result->sid);
   }
+
+  result->pid = pid;
 
   return 0;
 }

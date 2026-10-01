@@ -654,8 +654,6 @@ bare_pipe_bind(js_env_t *env, js_callback_info_t *info) {
     return NULL;
   }
 
-  // Restricted before listen, so that no connection is ever accepted under the
-  // default access rights.
   if (owner_only) {
     err = bare_pipe_acl_restrict_to_owner(&pipe->handle, (char *) path);
 
@@ -772,8 +770,6 @@ bare_pipe_accept(js_env_t *env, js_callback_info_t *info) {
   err = js_get_arraybuffer_info(env, argv[1], NULL, &client_len);
   assert(err == 0);
 
-  // A listening server records the connection on the client, which must then
-  // be a pipe of this module rather than any handle of the same type.
   if (server->listening && (uv_handle_get_type((uv_handle_t *) client) != UV_NAMED_PIPE || client_len != sizeof(bare_pipe_t))) {
     err = js_throw_error(env, uv_err_name(UV_EINVAL), uv_strerror(UV_EINVAL));
     assert(err == 0);
@@ -792,15 +788,13 @@ bare_pipe_accept(js_env_t *env, js_callback_info_t *info) {
 
   bool accepted = true;
 
-  // Only a listening server accepts a connection that was just made. A pipe
-  // received over IPC may have connected at any time before.
+  // A pipe received over IPC may have connected at any time before.
   if (server->listening) {
     bare_pipe_t *pipe = (bare_pipe_t *) client;
 
     pipe->connected = bare_pipe_acl_timestamp();
 
-    // Dropped rather than reported, so that a rejected peer cannot raise errors
-    // on the server.
+    // Dropped rather than reported, so that a rejected peer cannot raise errors.
     if (server->owner_only) {
       bool owner;
       accepted = bare_pipe_acl_is_owner_client(&pipe->handle, pipe->connected, &owner) == 0 && owner;

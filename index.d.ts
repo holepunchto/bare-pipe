@@ -34,11 +34,8 @@ interface PipeCredentials {
   /** The peer's group ID on Unix; `null` on Windows. */
   gid: number | null
   /**
-   * The peer's user SID on Windows, such as `'S-1-5-21-...'`. On the server end it is the user the
-   * client process runs as, and on the client end the owner of the pipe, which is `'S-1-5-32-544'`
-   * for an elevated administrator. `null` on Unix, for a remote peer, for a client that has exited
-   * or whose process ID has been reused, for a server end opened from a handle or received over
-   * IPC, and for a peer the caller may not query.
+   * The peer's user SID on Windows: the user of the client process on the server end, and the owner
+   * of the pipe on the client end. `null` on Unix and wherever the peer cannot be identified.
    */
   sid: string | null
 }
@@ -115,13 +112,7 @@ interface Pipe<M extends PipeEvents = PipeEvents> extends Duplex<M>, IPCAcceptab
 
   /**
    * The operating system's account of the process on the other end of the pipe, read from the
-   * kernel rather than from anything the peer sent. On Unix it is taken from `SO_PEERCRED` or
-   * `getpeereid()` and reflects the peer at the time it connected. On Windows the process ID comes
-   * from `GetNamedPipeClientProcessId()` or `GetNamedPipeServerProcessId()`. On the server end the
-   * SID is taken from the primary token of the client process, not from any token it impersonated,
-   * unless that process was created after the pipe connected and so has reused the ID of a client
-   * that exited. On the client end the SID is the owner of the pipe. A peer on another machine
-   * reports nothing, and a server end opened from a handle or received over IPC reports no SID.
+   * kernel rather than from anything the peer sent.
    * @returns The peer's credentials.
    * @throws {PIPE_IS_CLOSED} the pipe is closed.
    * @throws {PIPE_NOT_CONNECTED} the pipe is not connected.
@@ -168,13 +159,8 @@ interface PipeServerOptions {
 interface PipeServerListenOptions {
   backlog?: number
   /**
-   * Restrict the pipe to the current user before any client can connect. On Unix the socket file
-   * is made `0600`, which requires Linux 6.6 or later or a mounted `/proc` on Linux, and clients
-   * running as a user other than that of the server or root are disconnected as they are accepted;
-   * on Windows the pipe gets a protected DACL allowing only the current user and `SYSTEM`, and
-   * clients that are remote, run as another user, run at a lower integrity level than the server,
-   * or cannot be queried by it are disconnected as they are accepted. An abstract socket cannot be
-   * restricted.
+   * Restrict the pipe to the current user before any client can connect, and disconnect clients
+   * that the restriction alone would admit. Not supported for an abstract socket.
    */
   ownerOnly?: boolean
   path?: string

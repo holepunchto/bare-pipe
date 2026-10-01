@@ -732,7 +732,7 @@ exports.Server = class PipeServer extends EventEmitter {
     })
 
     try {
-      if (binding.accept(this._handle, pipe._handle) === false) {
+      if (!binding.accept(this._handle, pipe._handle)) {
         pipe.destroy()
         return
       }

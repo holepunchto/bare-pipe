@@ -20,8 +20,7 @@ bare_pipe_acl_peer_credentials(uv_pipe_t *handle, uint64_t connected, bare_pipe_
 
   if (getsockopt(fd, SOL_SOCKET, SO_PEERCRED, &cred, &len) != 0) return uv_translate_sys_error(errno);
 
-  // A peer in a PID namespace that is not visible reports a process ID of 0,
-  // and an unconnected socket reports -1 for its user and group IDs.
+  // A peer in another PID namespace reports 0, and an unconnected socket -1.
   if (cred.pid > 0) result->pid = cred.pid;
   if (cred.uid != (uid_t) -1) result->uid = cred.uid;
   if (cred.gid != (gid_t) -1) result->gid = cred.gid;
