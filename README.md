@@ -103,6 +103,7 @@ What counts as valid credentials is up to the application, such as a `uid` match
 `ownerOnly` applies the restriction before the server listens. On Unix the socket file is made `0600`, without following a symbolic link that replaced it, which on Linux requires Linux 6.6 or later or a mounted `/proc`. On Windows the pipe gets a protected DACL that allows only the current user and `SYSTEM`, any client that opened the pipe before the DACL was applied is disconnected, and some clients are disconnected as soon as they are accepted, without a `connection` event:
 
 - A remote client.
+- A client whose process runs as another user than the server, other than `SYSTEM`. The DACL alone admits these when they connect while impersonating the current user.
 - A client running at a lower integrity level than the server, such as an unelevated process seen from an elevated server or a sandboxed low integrity process. The DACL alone admits these, as they run as the same user.
 - A client whose process the server may not query, such as an elevated process or one running as `SYSTEM` seen from an unelevated server, or one that has exited.
 

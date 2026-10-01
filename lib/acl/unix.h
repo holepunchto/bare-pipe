@@ -26,16 +26,10 @@ bare_pipe_acl_is_owner_client(uv_pipe_t *client, uint64_t connected, bool *resul
 
 // Changed without following a symbolic link that replaced the socket, which on
 // Linux the C library does through fchmodat2() or, on kernels before 6.6,
-// through /proc. A socket cannot be opened by its path, so it is checked by
-// path once changed.
+// through /proc.
 static int
 bare_pipe_acl_restrict_to_owner(uv_pipe_t *handle, const char *path) {
   if (fchmodat(AT_FDCWD, path, S_IRUSR | S_IWUSR, AT_SYMLINK_NOFOLLOW) != 0) return uv_translate_sys_error(errno);
-
-  struct stat st;
-  if (lstat(path, &st) != 0) return uv_translate_sys_error(errno);
-
-  if (!S_ISSOCK(st.st_mode)) return UV_ENOTSOCK;
 
   return 0;
 }
