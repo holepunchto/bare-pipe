@@ -4,41 +4,33 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <stdint.h>
-#include <stdio.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
+#include <sys/syscall.h>
 #include <unistd.h>
 #include <uv.h>
 
 #include "credentials.h"
 #include "unix.h"
 
-// Opened without following a symbolic link that replaced the socket, and
-// changed through /proc as Linux cannot change the mode of an O_PATH
-// descriptor directly.
+// Defined by the headers of Linux 6.6 and later, which added the call.
+#ifndef SYS_fchmodat2
+#define SYS_fchmodat2 452
+#endif
+
+// Changed without following a symbolic link that replaced the socket, which
+// only fchmodat2() supports without going through /proc. A socket cannot be
+// opened by its path, so it is checked by path once changed.
 static int
 bare_pipe_acl_restrict_to_owner(uv_pipe_t *handle, const char *path) {
-  int fd = open(path, O_PATH | O_NOFOLLOW | O_CLOEXEC);
-  if (fd < 0) return uv_translate_sys_error(errno);
-
-  int err = 0;
+  if (syscall(SYS_fchmodat2, AT_FDCWD, path, S_IRUSR | S_IWUSR, AT_SYMLINK_NOFOLLOW) != 0) return uv_translate_sys_error(errno);
 
   struct stat st;
+  if (lstat(path, &st) != 0) return uv_translate_sys_error(errno);
 
-  if (fstat(fd, &st) != 0) {
-    err = uv_translate_sys_error(errno);
-  } else if (!S_ISSOCK(st.st_mode)) {
-    err = UV_ENOTSOCK;
-  } else {
-    char proc[32];
-    snprintf(proc, sizeof(proc), "/proc/self/fd/%d", fd);
+  if (!S_ISSOCK(st.st_mode)) return UV_ENOTSOCK;
 
-    if (chmod(proc, S_IRUSR | S_IWUSR) != 0) err = uv_translate_sys_error(errno);
-  }
-
-  close(fd);
-
-  return err;
+  return 0;
 }
 
 static int

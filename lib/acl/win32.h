@@ -80,9 +80,10 @@ bare_pipe_acl__process_sid(DWORD pid, uint64_t connected, char **result) {
 
   if (!GetProcessTimes(process, &created, &exited, &kernel, &user)) {
     err = uv_translate_sys_error(GetLastError());
-  } else if (bare_pipe_acl__filetime(&created) >= connected) {
+  } else if (bare_pipe_acl__filetime(&created) > connected) {
     // The peer was alive when the pipe connected, so a process created since
-    // has reused its ID after it exited.
+    // has reused its ID after it exited. A process created in the same tick as
+    // the accept is let through, as the clock cannot tell it from the peer.
     err = UV_ESRCH;
   } else if (!OpenProcessToken(process, TOKEN_QUERY, &token)) {
     err = uv_translate_sys_error(GetLastError());
@@ -132,10 +133,9 @@ bare_pipe_acl_restrict_to_owner(uv_pipe_t *handle, const char *path) {
 
   if (err < 0) return err;
 
-  // Protected, so nothing is inherited: the current user and SYSTEM are
-  // allowed, and network logons are denied even for the current user, which
-  // stands in for PIPE_REJECT_REMOTE_CLIENTS that libuv does not set.
-  const char *format = "D:P(D;;GA;;;NU)(A;;GA;;;%s)(A;;GA;;;SY)";
+  // Protected, so nothing is inherited: only the current user and SYSTEM are
+  // allowed. Remote clients are instead rejected as they are accepted.
+  const char *format = "D:P(A;;GA;;;%s)(A;;GA;;;SY)";
 
   size_t len = snprintf(NULL, 0, format, sid) + 1 /* NULL */;
 
@@ -186,10 +186,34 @@ bare_pipe_acl_restrict_to_owner(uv_pipe_t *handle, const char *path) {
   return 0;
 }
 
+static int
+bare_pipe_acl__is_local_client(HANDLE handle, bool *result) {
+  WCHAR host[DNS_MAX_NAME_BUFFER_LENGTH];
+
+  if (GetNamedPipeClientComputerNameW(handle, host, sizeof(host))) {
+    *result = false;
+
+    return 0;
+  }
+
+  DWORD error = GetLastError();
+  if (error != ERROR_PIPE_LOCAL) return uv_translate_sys_error(error);
+
+  *result = true;
+
+  return 0;
+}
+
+// Stands in for PIPE_REJECT_REMOTE_CLIENTS, which libuv does not set.
+static inline int
+bare_pipe_acl_is_local_client(uv_pipe_t *client, bool *result) {
+  return bare_pipe_acl__is_local_client(client->handle, result);
+}
+
 // Asks the handle rather than the name it was opened by, as Win32 resolves a
 // name such as \\.\pipe\..\UNC\host\pipe\name to a pipe on another machine.
 static int
-bare_pipe_acl__is_local_pipe(HANDLE handle, bool *result) {
+bare_pipe_acl__is_local_server(HANDLE handle, bool *result) {
   IO_STATUS_BLOCK status;
   bare_pipe_acl__fs_device_information_t info;
 
@@ -210,15 +234,15 @@ bare_pipe_acl_peer_credentials(uv_pipe_t *pipe, uint64_t connected, bare_pipe_ac
   if (!GetNamedPipeInfo(handle, &flags, NULL, NULL, NULL)) return uv_translate_sys_error(GetLastError());
 
   ULONG pid;
+  bool local;
 
   // A remote peer's process ID names a process on another machine, so it is
   // never reported, and neither is anything derived from it.
   if (flags & PIPE_SERVER_END) {
-    WCHAR host[DNS_MAX_NAME_BUFFER_LENGTH];
-    if (GetNamedPipeClientComputerNameW(handle, host, sizeof(host))) return 0;
+    int err = bare_pipe_acl__is_local_client(handle, &local);
+    if (err < 0) return err;
 
-    DWORD error = GetLastError();
-    if (error != ERROR_PIPE_LOCAL) return uv_translate_sys_error(error);
+    if (!local) return 0;
 
     if (!GetNamedPipeClientProcessId(handle, &pid)) return uv_translate_sys_error(GetLastError());
 
@@ -233,8 +257,7 @@ bare_pipe_acl_peer_credentials(uv_pipe_t *pipe, uint64_t connected, bare_pipe_ac
     // rather than failing.
     if (bare_pipe_acl__process_sid(pid, connected, &result->sid) < 0) result->sid = NULL;
   } else {
-    bool local;
-    int err = bare_pipe_acl__is_local_pipe(handle, &local);
+    int err = bare_pipe_acl__is_local_server(handle, &local);
     if (err < 0) return err;
 
     if (!local) return 0;

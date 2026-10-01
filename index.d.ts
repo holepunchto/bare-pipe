@@ -36,9 +36,9 @@ interface PipeCredentials {
   /**
    * The peer's user SID on Windows, such as `'S-1-5-21-...'`. On the server end it is the user the
    * client process runs as, and on the client end the owner of the pipe, which is `'S-1-5-32-544'`
-   * for an elevated administrator. `null` on Unix, for a remote peer, for a client whose process ID
-   * has been reused, for a server end opened from a handle or received over IPC, and for a peer the
-   * caller may not query.
+   * for an elevated administrator. `null` on Unix, for a remote peer, for a client that has exited
+   * or whose process ID has been reused, for a server end opened from a handle or received over
+   * IPC, and for a peer the caller may not query.
    */
   sid: string | null
 }
@@ -169,8 +169,9 @@ interface PipeServerListenOptions {
   backlog?: number
   /**
    * Restrict the pipe to the current user before any client can connect. On Unix the socket file
-   * is made `0600`; on Windows the pipe gets a protected DACL allowing only the current user and
-   * `SYSTEM`, and denying network logons. An abstract socket cannot be restricted.
+   * is made `0600`, which requires Linux 6.6 or later on Linux; on Windows the pipe gets a protected
+   * DACL allowing only the current user and `SYSTEM`, and remote clients are disconnected as they
+   * are accepted. An abstract socket cannot be restricted.
    */
   ownerOnly?: boolean
   path?: string

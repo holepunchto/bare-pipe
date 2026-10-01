@@ -45,6 +45,7 @@ typedef struct {
   bool closing;
   bool exiting;
   bool listening;
+  bool owner_only;
 
   uint64_t connected;
 
@@ -546,6 +547,7 @@ bare_pipe_init(js_env_t *env, js_callback_info_t *info) {
   pipe->closing = false;
   pipe->exiting = false;
   pipe->listening = false;
+  pipe->owner_only = false;
 
   pipe->connected = 0;
 
@@ -679,6 +681,7 @@ bare_pipe_bind(js_env_t *env, js_callback_info_t *info) {
   }
 
   pipe->listening = true;
+  pipe->owner_only = owner_only;
 
   return NULL;
 }
@@ -778,11 +781,26 @@ bare_pipe_accept(js_env_t *env, js_callback_info_t *info) {
     return NULL;
   }
 
+  bool accepted = true;
+
   // Only a listening server accepts a connection that was just made. A pipe
   // received over IPC may have connected at any time before.
-  if (server->listening) ((bare_pipe_t *) client)->connected = bare_pipe_acl_timestamp();
+  if (server->listening) {
+    ((bare_pipe_t *) client)->connected = bare_pipe_acl_timestamp();
 
-  return NULL;
+    // Dropped rather than reported, so that a remote peer cannot raise errors
+    // on the server.
+    if (server->owner_only) {
+      bool local;
+      accepted = bare_pipe_acl_is_local_client((uv_pipe_t *) client, &local) == 0 && local;
+    }
+  }
+
+  js_value_t *result;
+  err = js_get_boolean(env, accepted, &result);
+  assert(err == 0);
+
+  return result;
 }
 
 static js_value_t *
