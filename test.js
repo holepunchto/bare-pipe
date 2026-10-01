@@ -1068,6 +1068,7 @@ test('socket, remote credentials of an anonymous pipe', { skip: !isWindows }, (t
   const writer = new Pipe(write)
 
   t.is(reader.remoteCredentials().pid, Bare.pid, 'the server end sees the client process')
+  t.ok(/^S-1-5-/.test(reader.remoteCredentials().sid), 'the server end sees a user SID')
   t.is(writer.remoteCredentials().pid, null, 'the client end has no name to prove it is local')
 
   reader.destroy()

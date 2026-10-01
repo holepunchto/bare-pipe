@@ -104,7 +104,7 @@ What counts as valid credentials is up to the application, such as a `uid` match
 
 `pipe.remoteCredentials()` returns `{ pid, uid, gid, sid }`, with `null` for anything the platform cannot report. On Linux it reads `SO_PEERCRED`; on macOS and the BSDs `getpeereid()`, plus `LOCAL_PEERPID` on macOS. Read the credentials while the peer is connected: on macOS the process ID is no longer available once the peer has closed its end.
 
-On Windows the process ID comes from the pipe. A server reads the client's user SID by impersonating it, and reports no SID for a client that withholds its identity. A client reads the server's user SID from the token of the process with that ID, which is best effort, since the ID may have been reused once the server process has exited. A remote peer reports no process ID or SID, since its process ID names a process on another machine, and so does a client that did not connect by a local `\\.\pipe\` name.
+On Windows the process ID comes from the pipe, and the user SID from the token of the process with that ID. A process created after the pipe connected has reused the ID of a peer that exited, and reports no SID. A remote peer reports no process ID or SID, since its process ID names a process on another machine, and so does a client that did not connect by a local `\\.\pipe\` name.
 
 ## License
 

@@ -59,6 +59,10 @@ typedef struct {
   bool closing;
   bool exiting;
 
+#ifdef _WIN32
+  FILETIME connected;
+#endif
+
   js_deferred_teardown_t *teardown;
 } bare_pipe_t;
 
@@ -200,43 +204,39 @@ bare_pipe__token_sid(HANDLE token, char **result) {
 }
 
 static int
-bare_pipe__process_sid(DWORD pid, char **result) {
+bare_pipe__process_sid(DWORD pid, const FILETIME *connected, char **result) {
   HANDLE process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
   if (process == NULL) return uv_translate_sys_error(GetLastError());
 
-  HANDLE token;
-  BOOL ok = OpenProcessToken(process, TOKEN_QUERY, &token);
-  DWORD error = GetLastError();
+  int err = 0;
+
+  FILETIME created, exited, kernel, user;
+  HANDLE token = NULL;
+
+  if (!GetProcessTimes(process, &created, &exited, &kernel, &user)) {
+    err = uv_translate_sys_error(GetLastError());
+  } else if (CompareFileTime(&created, connected) > 0) {
+    // The peer was alive when the pipe connected, so a process created since
+    // has reused its ID after it exited.
+    err = UV_ESRCH;
+  } else if (!OpenProcessToken(process, TOKEN_QUERY, &token)) {
+    err = uv_translate_sys_error(GetLastError());
+  }
 
   CloseHandle(process);
 
-  if (!ok) return uv_translate_sys_error(error);
+  if (err < 0) return err;
 
-  int err = bare_pipe__token_sid(token, result);
+  err = bare_pipe__token_sid(token, result);
 
   CloseHandle(token);
 
   return err;
 }
 
-static int
-bare_pipe__client_sid(HANDLE pipe, char **result) {
-  if (!ImpersonateNamedPipeClient(pipe)) return uv_translate_sys_error(GetLastError());
-
-  HANDLE token;
-  BOOL ok = OpenThreadToken(GetCurrentThread(), TOKEN_QUERY, TRUE, &token);
-  DWORD error = GetLastError();
-
-  // Carrying on as the client would run the loop with the client's rights.
-  if (!RevertToSelf()) abort();
-
-  if (!ok) return uv_translate_sys_error(error);
-
-  int err = bare_pipe__token_sid(token, result);
-
-  CloseHandle(token);
-
-  return err;
+static inline void
+bare_pipe__mark_connected(bare_pipe_t *pipe) {
+  GetSystemTimePreciseAsFileTime(&pipe->connected);
 }
 
 static int
@@ -313,11 +313,11 @@ bare_pipe__is_local_name(const WCHAR *name) {
 }
 
 static int
-bare_pipe__peer_credentials(uv_pipe_t *handle, bare_pipe_credentials_t *result) {
-  HANDLE pipe = handle->handle;
+bare_pipe__peer_credentials(bare_pipe_t *pipe, bare_pipe_credentials_t *result) {
+  HANDLE handle = pipe->handle.handle;
 
   DWORD flags;
-  if (!GetNamedPipeInfo(pipe, &flags, NULL, NULL, NULL)) return uv_translate_sys_error(GetLastError());
+  if (!GetNamedPipeInfo(handle, &flags, NULL, NULL, NULL)) return uv_translate_sys_error(GetLastError());
 
   ULONG pid;
 
@@ -325,29 +325,25 @@ bare_pipe__peer_credentials(uv_pipe_t *handle, bare_pipe_credentials_t *result) 
   // never reported, and neither is anything derived from it.
   if (flags & PIPE_SERVER_END) {
     WCHAR host[DNS_MAX_NAME_BUFFER_LENGTH];
-    if (GetNamedPipeClientComputerNameW(pipe, host, sizeof(host))) return 0;
+    if (GetNamedPipeClientComputerNameW(handle, host, sizeof(host))) return 0;
 
     DWORD error = GetLastError();
     if (error != ERROR_PIPE_LOCAL) return uv_translate_sys_error(error);
 
-    if (!GetNamedPipeClientProcessId(pipe, &pid)) return uv_translate_sys_error(GetLastError());
-
-    result->pid = pid;
-
-    // A client that withholds its identity reports no SID rather than failing.
-    if (bare_pipe__client_sid(pipe, &result->sid) < 0) result->sid = NULL;
+    if (!GetNamedPipeClientProcessId(handle, &pid)) return uv_translate_sys_error(GetLastError());
   } else {
     // Only a pipe connected by a local name is known to have a local server.
-    if (!bare_pipe__is_local_name(handle->name)) return 0;
+    if (!bare_pipe__is_local_name(pipe->handle.name)) return 0;
 
-    if (!GetNamedPipeServerProcessId(pipe, &pid)) return uv_translate_sys_error(GetLastError());
-
-    result->pid = pid;
-
-    // A server whose token the caller may not query, such as an elevated
-    // process seen from an unelevated one, reports no SID rather than failing.
-    if (bare_pipe__process_sid(pid, &result->sid) < 0) result->sid = NULL;
+    if (!GetNamedPipeServerProcessId(handle, &pid)) return uv_translate_sys_error(GetLastError());
   }
+
+  result->pid = pid;
+
+  // A peer whose token the caller may not query, such as an elevated process
+  // seen from an unelevated one, or whose ID has been reused, reports no SID
+  // rather than failing.
+  if (bare_pipe__process_sid(pid, &pipe->connected, &result->sid) < 0) result->sid = NULL;
 
   return 0;
 }
@@ -367,12 +363,15 @@ bare_pipe__restrict_to_owner(uv_pipe_t *handle) {
   return 0;
 }
 
+static inline void
+bare_pipe__mark_connected(bare_pipe_t *pipe) {}
+
 #ifdef __linux__
 
 static int
-bare_pipe__peer_credentials(uv_pipe_t *handle, bare_pipe_credentials_t *result) {
+bare_pipe__peer_credentials(bare_pipe_t *pipe, bare_pipe_credentials_t *result) {
   uv_os_fd_t fd;
-  int err = uv_fileno((uv_handle_t *) handle, &fd);
+  int err = uv_fileno((uv_handle_t *) &pipe->handle, &fd);
   if (err < 0) return err;
 
   struct ucred cred;
@@ -390,9 +389,9 @@ bare_pipe__peer_credentials(uv_pipe_t *handle, bare_pipe_credentials_t *result) 
 #else
 
 static int
-bare_pipe__peer_credentials(uv_pipe_t *handle, bare_pipe_credentials_t *result) {
+bare_pipe__peer_credentials(bare_pipe_t *pipe, bare_pipe_credentials_t *result) {
   uv_os_fd_t fd;
-  int err = uv_fileno((uv_handle_t *) handle, &fd);
+  int err = uv_fileno((uv_handle_t *) &pipe->handle, &fd);
   if (err < 0) return err;
 
   uid_t uid;
@@ -499,6 +498,8 @@ bare_pipe__on_connect(uv_connect_t *req, int status) {
     err = js_create_error(env, code, message, &argv[0]);
     assert(err == 0);
   } else {
+    bare_pipe__mark_connected(pipe);
+
     err = js_get_null(env, &argv[0]);
     assert(err == 0);
   }
@@ -801,6 +802,9 @@ bare_pipe_init(js_env_t *env, js_callback_info_t *info) {
   pipe->closing = false;
   pipe->exiting = false;
 
+  // An accepted pipe is initialized only once its client has connected.
+  bare_pipe__mark_connected(pipe);
+
   size_t read_len;
   err = js_get_typedarray_info(env, argv[0], NULL, (void **) &pipe->read.base, &read_len, NULL, NULL);
   assert(err == 0);
@@ -975,6 +979,8 @@ bare_pipe_open(js_env_t *env, js_callback_info_t *info) {
 
     return NULL;
   }
+
+  bare_pipe__mark_connected(pipe);
 
   uint32_t status = 0;
 
@@ -1273,7 +1279,7 @@ bare_pipe_remote_credentials(js_env_t *env, js_callback_info_t *info) {
 
   bare_pipe_credentials_t credentials = {-1, -1, -1, NULL};
 
-  err = bare_pipe__peer_credentials(&pipe->handle, &credentials);
+  err = bare_pipe__peer_credentials(pipe, &credentials);
 
   if (err < 0) {
     err = js_throw_error(env, uv_err_name(err), uv_strerror(err));
