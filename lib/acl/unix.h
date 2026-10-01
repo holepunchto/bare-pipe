@@ -1,8 +1,11 @@
 #ifndef BARE_PIPE_ACL_UNIX_H
 #define BARE_PIPE_ACL_UNIX_H
 
+#include <errno.h>
+#include <fcntl.h>
 #include <stdbool.h>
 #include <stdint.h>
+#include <sys/stat.h>
 #include <uv.h>
 
 #include "credentials.h"
@@ -17,6 +20,22 @@ bare_pipe_acl_timestamp(void) {
 static inline int
 bare_pipe_acl_is_local_client(uv_pipe_t *client, bool *result) {
   *result = true;
+
+  return 0;
+}
+
+// Changed without following a symbolic link that replaced the socket, which on
+// Linux the C library does through fchmodat2() or, on kernels before 6.6,
+// through /proc. A socket cannot be opened by its path, so it is checked by
+// path once changed.
+static int
+bare_pipe_acl_restrict_to_owner(uv_pipe_t *handle, const char *path) {
+  if (fchmodat(AT_FDCWD, path, S_IRUSR | S_IWUSR, AT_SYMLINK_NOFOLLOW) != 0) return uv_translate_sys_error(errno);
+
+  struct stat st;
+  if (lstat(path, &st) != 0) return uv_translate_sys_error(errno);
+
+  if (!S_ISSOCK(st.st_mode)) return UV_ENOTSOCK;
 
   return 0;
 }

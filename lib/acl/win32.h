@@ -101,7 +101,8 @@ bare_pipe_acl__process_sid(DWORD pid, uint64_t connected, char **result) {
 }
 
 // The kernel records the owner when the pipe is created, and a creator may only
-// name a SID from its own token, so the owner cannot be claimed by another user.
+// name a SID from its own token unless it holds SeRestorePrivilege, so the owner
+// cannot be claimed by another user short of that privilege.
 static int
 bare_pipe_acl__owner_sid(HANDLE handle, char **result) {
   PSID owner;
@@ -244,6 +245,10 @@ bare_pipe_acl_peer_credentials(uv_pipe_t *pipe, uint64_t connected, bare_pipe_ac
 
     if (!local) return 0;
 
+    // The process ID is fixed when the client opens the pipe, so a client can
+    // hand its end to another process and exit to have its ID reused. Only a
+    // remote client can name another ID outright, and is never asked. See
+    // https://projectzero.google/2019/09/windows-exploitation-tricks-spoofing.html
     if (!GetNamedPipeClientProcessId(handle, &pid)) return uv_translate_sys_error(GetLastError());
 
     result->pid = pid;

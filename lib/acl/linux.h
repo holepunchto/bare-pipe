@@ -2,36 +2,12 @@
 #define BARE_PIPE_ACL_LINUX_H
 
 #include <errno.h>
-#include <fcntl.h>
 #include <stdint.h>
 #include <sys/socket.h>
-#include <sys/stat.h>
-#include <sys/syscall.h>
-#include <unistd.h>
 #include <uv.h>
 
 #include "credentials.h"
 #include "unix.h"
-
-// Defined by the headers of Linux 6.6 and later, which added the call.
-#ifndef SYS_fchmodat2
-#define SYS_fchmodat2 452
-#endif
-
-// Changed without following a symbolic link that replaced the socket, which
-// only fchmodat2() supports without going through /proc. A socket cannot be
-// opened by its path, so it is checked by path once changed.
-static int
-bare_pipe_acl_restrict_to_owner(uv_pipe_t *handle, const char *path) {
-  if (syscall(SYS_fchmodat2, AT_FDCWD, path, S_IRUSR | S_IWUSR, AT_SYMLINK_NOFOLLOW) != 0) return uv_translate_sys_error(errno);
-
-  struct stat st;
-  if (lstat(path, &st) != 0) return uv_translate_sys_error(errno);
-
-  if (!S_ISSOCK(st.st_mode)) return UV_ENOTSOCK;
-
-  return 0;
-}
 
 static int
 bare_pipe_acl_peer_credentials(uv_pipe_t *handle, uint64_t connected, bare_pipe_acl_credentials_t *result) {
