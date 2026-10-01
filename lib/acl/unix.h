@@ -18,7 +18,7 @@ bare_pipe_acl_timestamp(void) {
 }
 
 static inline int
-bare_pipe_acl_is_local_client(uv_pipe_t *client, bool *result) {
+bare_pipe_acl_is_owner_client(uv_pipe_t *client, uint64_t connected, bool *result) {
   *result = true;
 
   return 0;

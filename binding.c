@@ -1,7 +1,3 @@
-#if defined(__linux__) && !defined(_GNU_SOURCE)
-#define _GNU_SOURCE
-#endif
-
 #include <assert.h>
 #include <bare.h>
 #include <js.h>
@@ -772,6 +768,19 @@ bare_pipe_accept(js_env_t *env, js_callback_info_t *info) {
     return NULL;
   }
 
+  size_t client_len;
+  err = js_get_arraybuffer_info(env, argv[1], NULL, &client_len);
+  assert(err == 0);
+
+  // A listening server records the connection on the client, which must then
+  // be a pipe of this module rather than any handle of the same type.
+  if (server->listening && (uv_handle_get_type((uv_handle_t *) client) != UV_NAMED_PIPE || client_len != sizeof(bare_pipe_t))) {
+    err = js_throw_error(env, uv_err_name(UV_EINVAL), uv_strerror(UV_EINVAL));
+    assert(err == 0);
+
+    return NULL;
+  }
+
   err = uv_accept((uv_stream_t *) &server->handle, client);
 
   if (err < 0) {
@@ -786,13 +795,15 @@ bare_pipe_accept(js_env_t *env, js_callback_info_t *info) {
   // Only a listening server accepts a connection that was just made. A pipe
   // received over IPC may have connected at any time before.
   if (server->listening) {
-    ((bare_pipe_t *) client)->connected = bare_pipe_acl_timestamp();
+    bare_pipe_t *pipe = (bare_pipe_t *) client;
 
-    // Dropped rather than reported, so that a remote peer cannot raise errors
+    pipe->connected = bare_pipe_acl_timestamp();
+
+    // Dropped rather than reported, so that a rejected peer cannot raise errors
     // on the server.
     if (server->owner_only) {
-      bool local;
-      accepted = bare_pipe_acl_is_local_client((uv_pipe_t *) client, &local) == 0 && local;
+      bool owner;
+      accepted = bare_pipe_acl_is_owner_client(&pipe->handle, pipe->connected, &owner) == 0 && owner;
     }
   }
 

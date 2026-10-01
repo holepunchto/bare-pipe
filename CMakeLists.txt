@@ -19,3 +19,11 @@ if(WIN32)
       ntdll
   )
 endif()
+
+if(LINUX OR ANDROID)
+  target_compile_definitions(
+    ${bare_pipe}
+    PRIVATE
+      _GNU_SOURCE
+  )
+endif()

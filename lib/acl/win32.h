@@ -69,14 +69,53 @@ bare_pipe_acl__token_sid(HANDLE token, char **result) {
 }
 
 static int
-bare_pipe_acl__process_sid(DWORD pid, uint64_t connected, char **result) {
+bare_pipe_acl__token_integrity(HANDLE token, DWORD *result) {
+  DWORD len = 0;
+  GetTokenInformation(token, TokenIntegrityLevel, NULL, 0, &len);
+
+  DWORD error = GetLastError();
+  if (error != ERROR_INSUFFICIENT_BUFFER) return uv_translate_sys_error(error);
+
+  TOKEN_MANDATORY_LABEL *label = malloc(len);
+  if (label == NULL) return UV_ENOMEM;
+
+  int err = 0;
+
+  if (!GetTokenInformation(token, TokenIntegrityLevel, label, len, &len)) {
+    err = uv_translate_sys_error(GetLastError());
+  } else {
+    PSID sid = label->Label.Sid;
+
+    *result = *GetSidSubAuthority(sid, *GetSidSubAuthorityCount(sid) - 1);
+  }
+
+  free(label);
+
+  return err;
+}
+
+static int
+bare_pipe_acl__current_integrity(DWORD *result) {
+  HANDLE token;
+  if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token)) {
+    return uv_translate_sys_error(GetLastError());
+  }
+
+  int err = bare_pipe_acl__token_integrity(token, result);
+
+  CloseHandle(token);
+
+  return err;
+}
+
+static int
+bare_pipe_acl__process_token(DWORD pid, uint64_t connected, HANDLE *result) {
   HANDLE process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
   if (process == NULL) return uv_translate_sys_error(GetLastError());
 
   int err = 0;
 
   FILETIME created, exited, kernel, user;
-  HANDLE token = NULL;
 
   if (!GetProcessTimes(process, &created, &exited, &kernel, &user)) {
     err = uv_translate_sys_error(GetLastError());
@@ -85,12 +124,19 @@ bare_pipe_acl__process_sid(DWORD pid, uint64_t connected, char **result) {
     // has reused its ID after it exited. A process created in the same tick as
     // the accept is let through, as the clock cannot tell it from the peer.
     err = UV_ESRCH;
-  } else if (!OpenProcessToken(process, TOKEN_QUERY, &token)) {
+  } else if (!OpenProcessToken(process, TOKEN_QUERY, result)) {
     err = uv_translate_sys_error(GetLastError());
   }
 
   CloseHandle(process);
 
+  return err;
+}
+
+static int
+bare_pipe_acl__process_sid(DWORD pid, uint64_t connected, char **result) {
+  HANDLE token;
+  int err = bare_pipe_acl__process_token(pid, connected, &token);
   if (err < 0) return err;
 
   err = bare_pipe_acl__token_sid(token, result);
@@ -135,7 +181,8 @@ bare_pipe_acl_restrict_to_owner(uv_pipe_t *handle, const char *path) {
   if (err < 0) return err;
 
   // Protected, so nothing is inherited: only the current user and SYSTEM are
-  // allowed. Remote clients are instead rejected as they are accepted.
+  // allowed. Remote clients and clients below the integrity level of the
+  // server are instead rejected as they are accepted.
   const char *format = "D:P(A;;GA;;;%s)(A;;GA;;;SY)";
 
   size_t len = snprintf(NULL, 0, format, sid) + 1 /* NULL */;
@@ -205,10 +252,40 @@ bare_pipe_acl__is_local_client(HANDLE handle, bool *result) {
   return 0;
 }
 
-// Stands in for PIPE_REJECT_REMOTE_CLIENTS, which libuv does not set.
-static inline int
-bare_pipe_acl_is_local_client(uv_pipe_t *client, bool *result) {
-  return bare_pipe_acl__is_local_client(client->handle, result);
+// Stands in for PIPE_REJECT_REMOTE_CLIENTS, which libuv does not set, and for a
+// mandatory label, which libuv opens the pipe without the rights to set. An
+// unlabeled pipe admits processes of the current user at a lower integrity
+// level, such as the unelevated half of an elevated administrator. A client
+// whose token cannot be queried is rejected, as a process may deny access to
+// its own token.
+static int
+bare_pipe_acl_is_owner_client(uv_pipe_t *client, uint64_t connected, bool *result) {
+  HANDLE handle = client->handle;
+
+  int err = bare_pipe_acl__is_local_client(handle, result);
+  if (err < 0 || !*result) return err;
+
+  ULONG pid;
+  if (!GetNamedPipeClientProcessId(handle, &pid)) return uv_translate_sys_error(GetLastError());
+
+  HANDLE token;
+  err = bare_pipe_acl__process_token(pid, connected, &token);
+  if (err < 0) return err;
+
+  DWORD client_level;
+  err = bare_pipe_acl__token_integrity(token, &client_level);
+
+  CloseHandle(token);
+
+  if (err < 0) return err;
+
+  DWORD server_level;
+  err = bare_pipe_acl__current_integrity(&server_level);
+  if (err < 0) return err;
+
+  *result = client_level >= server_level;
+
+  return 0;
 }
 
 // Asks the handle rather than the name it was opened by, as Win32 resolves a
