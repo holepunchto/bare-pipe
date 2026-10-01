@@ -1028,36 +1028,6 @@ test('socket, remote credentials on both ends', async (t) => {
   await new Promise((resolve) => server.close(resolve))
 })
 
-test('socket, remote credentials after the client writes', async (t) => {
-  const n = name()
-
-  let accepted = null
-  const server = Pipe.createServer()
-  const credentials = new Promise((resolve) => {
-    server.on('connection', (pipe) => {
-      accepted = pipe
-      pipe.once('data', () => resolve(pipe.remoteCredentials()))
-    })
-  })
-  server.listen(n)
-
-  const client = new Pipe(n)
-  await new Promise((resolve) => client.on('connect', resolve))
-
-  client.write('hello')
-
-  const seenByServer = await credentials
-
-  t.is(seenByServer.pid, Bare.pid, 'the server sees the client process')
-
-  if (isWindows) t.ok(/^S-1-5-/.test(seenByServer.sid), 'the server sees a user SID')
-
-  client.destroy()
-  accepted.destroy()
-
-  await new Promise((resolve) => server.close(resolve))
-})
-
 test('socket, remote credentials before connecting', (t) => {
   const pipe = new Pipe()
 

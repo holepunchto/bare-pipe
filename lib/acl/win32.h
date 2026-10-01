@@ -167,41 +167,6 @@ bare_pipe_acl_restrict_to_owner(uv_pipe_t *handle, const char *path) {
   return 0;
 }
 
-// Temporary diagnostic for the impersonation failure on Windows CI.
-static int
-bare_pipe_acl__client_sid(HANDLE pipe, char **result) {
-  if (!ImpersonateNamedPipeClient(pipe)) {
-    DWORD error = GetLastError();
-
-    fprintf(stderr, "bare-pipe diagnostic: ImpersonateNamedPipeClient() failed with %lu\n", error);
-    fflush(stderr);
-
-    return uv_translate_sys_error(error);
-  }
-
-  HANDLE token;
-  BOOL ok = OpenThreadToken(GetCurrentThread(), TOKEN_QUERY, TRUE, &token);
-  DWORD error = GetLastError();
-
-  if (!RevertToSelf()) abort();
-
-  if (!ok) {
-    fprintf(stderr, "bare-pipe diagnostic: OpenThreadToken() failed with %lu\n", error);
-    fflush(stderr);
-
-    return uv_translate_sys_error(error);
-  }
-
-  int err = bare_pipe_acl__token_sid(token, result);
-
-  CloseHandle(token);
-
-  fprintf(stderr, "bare-pipe diagnostic: impersonation %s (%d)\n", err < 0 ? "failed to read the SID" : "succeeded", err);
-  fflush(stderr);
-
-  return err;
-}
-
 // Asks the handle rather than the name it was opened by, as Win32 resolves a
 // name such as \\.\pipe\..\UNC\host\pipe\name to a pipe on another machine.
 static int
@@ -237,12 +202,6 @@ bare_pipe_acl_peer_credentials(uv_pipe_t *pipe, uint64_t connected, bare_pipe_ac
     if (error != ERROR_PIPE_LOCAL) return uv_translate_sys_error(error);
 
     if (!GetNamedPipeClientProcessId(handle, &pid)) return uv_translate_sys_error(GetLastError());
-
-    result->pid = pid;
-
-    if (bare_pipe_acl__client_sid(handle, &result->sid) < 0) result->sid = NULL;
-
-    return 0;
   } else {
     bool local;
     int err = bare_pipe_acl__is_local_pipe(handle, &local);
