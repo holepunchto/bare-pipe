@@ -100,10 +100,14 @@ server.listen({ path, ownerOnly: true })
 
 What counts as valid credentials is up to the application, such as a `uid` matching the current user on Unix or a `sid` matching it on Windows.
 
-`ownerOnly` applies the restriction before the server listens. On Unix the socket file is made `0600`, without following a symbolic link that replaced it, which on Linux requires Linux 6.6 or later or a mounted `/proc`. On Windows the pipe gets a protected DACL that allows only the current user and `SYSTEM`, any client that opened the pipe before the DACL was applied is disconnected, and some clients are disconnected as soon as they are accepted, without a `connection` event:
+`ownerOnly` applies the restriction before the server listens, and disconnects some clients as soon as they are accepted, without a `connection` event.
+
+On Unix the socket file is made `0600`, without following a symbolic link that replaced it, which on Linux requires Linux 6.6 or later or a mounted `/proc`. A client whose user is neither that of the server nor root is disconnected, which the mode alone admits when the client may bypass it, such as a process with `CAP_DAC_OVERRIDE` on Linux.
+
+On Windows the pipe gets a protected DACL that allows only the current user and `SYSTEM`, any client that opened the pipe before the DACL was applied is disconnected, and so is:
 
 - A remote client.
-- A client whose process runs as another user than the server, other than `SYSTEM`. The DACL alone admits these when they connect while impersonating the current user.
+- A client whose process runs as a user other than that of the server or `SYSTEM`. The DACL alone admits these when they connect while impersonating the current user.
 - A client running at a lower integrity level than the server, such as an unelevated process seen from an elevated server or a sandboxed low integrity process. The DACL alone admits these, as they run as the same user.
 - A client whose process the server may not query, such as an elevated process or one running as `SYSTEM` seen from an unelevated server, or one that has exited.
 

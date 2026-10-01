@@ -224,8 +224,8 @@ bare_pipe_acl_restrict_to_owner(uv_pipe_t *handle, const char *path) {
   if (!ConvertSidToStringSidA((PSID) current->sid, &sid)) return uv_translate_sys_error(GetLastError());
 
   // Protected, so nothing is inherited: only the current user and SYSTEM are
-  // allowed. Remote clients and clients below the integrity level of the
-  // server are instead rejected as they are accepted.
+  // allowed. Remote clients, clients of another user, and clients below the
+  // integrity level of the server are instead rejected as they are accepted.
   const char *format = "D:P(A;;GA;;;%s)(A;;GA;;;SY)";
 
   size_t len = snprintf(NULL, 0, format, sid) + 1 /* NULL */;

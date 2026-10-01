@@ -169,10 +169,12 @@ interface PipeServerListenOptions {
   backlog?: number
   /**
    * Restrict the pipe to the current user before any client can connect. On Unix the socket file
-   * is made `0600`, which requires Linux 6.6 or later or a mounted `/proc` on Linux; on Windows
-   * the pipe gets a protected DACL allowing only the current user and `SYSTEM`, and clients that
-   * are remote, run as another user, run at a lower integrity level than the server, or cannot be
-   * queried by it are disconnected as they are accepted. An abstract socket cannot be restricted.
+   * is made `0600`, which requires Linux 6.6 or later or a mounted `/proc` on Linux, and clients
+   * running as a user other than that of the server or root are disconnected as they are accepted;
+   * on Windows the pipe gets a protected DACL allowing only the current user and `SYSTEM`, and
+   * clients that are remote, run as another user, run at a lower integrity level than the server,
+   * or cannot be queried by it are disconnected as they are accepted. An abstract socket cannot be
+   * restricted.
    */
   ownerOnly?: boolean
   path?: string
