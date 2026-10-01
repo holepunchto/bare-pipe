@@ -102,6 +102,10 @@ module.exports = exports = class Pipe extends Duplex {
   }
 
   remoteCredentials() {
+    if (this._state & constants.state.CLOSING) {
+      throw errors.PIPE_IS_CLOSED('Pipe is closed')
+    }
+
     if ((this._state & constants.state.CONNECTED) === 0) {
       throw errors.PIPE_NOT_CONNECTED('Pipe is not connected')
     }
@@ -614,10 +618,14 @@ exports.Server = class PipeServer extends EventEmitter {
 
     if (backlog === null || backlog === 0) backlog = 511
 
-    const { ownerOnly = false } = opts || {}
+    const { ownerOnly = false } = opts
 
     validatePath(path)
     validateInteger(backlog, 'Backlog', 0, 0x7fffffff)
+
+    if (ownerOnly && (path === '' || path[0] === '\0')) {
+      throw errors.INVALID_ARGUMENT('An abstract socket cannot be restricted to its owner')
+    }
 
     this._state |= constants.state.BINDING
     this._state &= ~constants.state.CLOSED

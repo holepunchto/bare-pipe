@@ -34,8 +34,9 @@ interface PipeCredentials {
   /** The peer's group ID on Unix; `null` on Windows. */
   gid: number | null
   /**
-   * The peer's user SID on Windows, such as `'S-1-5-21-…'`; `null` on Unix, for a remote client,
-   * and for a peer whose token the caller may not query.
+   * The peer's user SID on Windows, such as `'S-1-5-21-...'`; `null` on Unix, for a remote peer,
+   * for a client that withholds its identity, and for a server whose token the caller may not
+   * query.
    */
   sid: string | null
 }
@@ -114,9 +115,12 @@ interface Pipe<M extends PipeEvents = PipeEvents> extends Duplex<M>, IPCAcceptab
    * The operating system's account of the process on the other end of the pipe, read from the
    * kernel rather than from anything the peer sent. On Unix it is taken from `SO_PEERCRED` or
    * `getpeereid()` and reflects the peer at the time it connected. On Windows the process ID comes
-   * from `GetNamedPipeClientProcessId()` or `GetNamedPipeServerProcessId()`, and the SID from that
-   * process's token.
+   * from `GetNamedPipeClientProcessId()` or `GetNamedPipeServerProcessId()`. A server reads the
+   * client's SID by impersonating it, while a client reads the server's SID from the token of the
+   * process with that ID, which is best effort: the ID may have been reused if the server process
+   * has exited. A client reports nothing unless it connected by a local `\\.\pipe\` name.
    * @returns The peer's credentials.
+   * @throws {PIPE_IS_CLOSED} the pipe is closed.
    * @throws {PIPE_NOT_CONNECTED} the pipe is not connected.
    */
   remoteCredentials(): PipeCredentials
@@ -162,7 +166,7 @@ interface PipeServerListenOptions {
   /**
    * Restrict the pipe to the current user before any client can connect. On Unix the socket file
    * is made `0600`; on Windows the pipe gets a protected DACL allowing only the current user and
-   * `SYSTEM`, and denying network logons.
+   * `SYSTEM`, and denying network logons. An abstract socket cannot be restricted.
    */
   ownerOnly?: boolean
   path?: string
@@ -186,6 +190,7 @@ interface PipeServer<M extends PipeServerEvents = PipeServerEvents> extends Even
    * @param onlistening - Called once when the server emits `'listening'`.
    * @throws {SERVER_ALREADY_LISTENING} the server is already listening.
    * @throws {SERVER_IS_CLOSED} the server has been closed.
+   * @throws {INVALID_ARGUMENT} `ownerOnly` was given for an abstract socket.
    */
   listen(
     path: string,

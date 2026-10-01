@@ -1041,7 +1041,7 @@ test('socket, remote credentials after a failed connect', async (t) => {
 
   await new Promise((resolve) => pipe.on('error', resolve))
 
-  t.exception(() => pipe.remoteCredentials(), /PIPE_NOT_CONNECTED/)
+  t.exception(() => pipe.remoteCredentials(), /PIPE_IS_CLOSED/)
 })
 
 test('socket, remote credentials of a pipe that is not a socket', { skip: isWindows }, (t) => {
@@ -1059,6 +1059,36 @@ test('socket, remote credentials of a pipe that is not a socket', { skip: isWind
 
   reader.destroy()
   writer.destroy()
+})
+
+test('socket, remote credentials of an anonymous pipe', { skip: !isWindows }, (t) => {
+  const [read, write] = Pipe.pipe()
+
+  const reader = new Pipe(read)
+  const writer = new Pipe(write)
+
+  t.is(reader.remoteCredentials().pid, Bare.pid, 'the server end sees the client process')
+  t.is(writer.remoteCredentials().pid, null, 'the client end has no name to prove it is local')
+
+  reader.destroy()
+  writer.destroy()
+})
+
+test('socket, remote credentials after destroy', async (t) => {
+  const n = name()
+
+  const server = Pipe.createServer()
+  server.on('connection', (pipe) => pipe.destroy())
+  server.listen(n)
+
+  const client = new Pipe(n)
+  await new Promise((resolve) => client.on('connect', resolve))
+
+  client.destroy()
+
+  t.exception(() => client.remoteCredentials(), /PIPE_IS_CLOSED/)
+
+  await new Promise((resolve) => server.close(resolve))
 })
 
 test('server, connection listener as the only argument', async (t) => {
@@ -1678,14 +1708,14 @@ test('server, listen owner only with a backlog', { skip: isWindows }, async (t) 
 })
 
 test('server, listen owner only on an abstract socket', { skip: !isLinux }, (t) => {
-  t.plan(2)
-
   const server = Pipe.createServer()
-  server.on('error', (err) => {
-    t.is(err.code, 'EINVAL', 'an abstract socket has no mode to restrict')
-    t.absent(server.listening)
-  })
-  server.listen({ path: '\0' + name().slice(5), ownerOnly: true })
+
+  t.exception(
+    () => server.listen({ path: '\0' + name().slice(5), ownerOnly: true }),
+    /INVALID_ARGUMENT/,
+    'an abstract socket has no mode to restrict'
+  )
+  t.absent(server.listening)
 })
 
 test('createConnection, arguments', async (t) => {
