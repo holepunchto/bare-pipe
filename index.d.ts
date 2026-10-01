@@ -35,8 +35,8 @@ interface PipeCredentials {
   gid: number | null
   /**
    * The peer's user SID on Windows, such as `'S-1-5-21-...'`; `null` on Unix, for a remote peer,
-   * for a peer whose process ID has been reused, and for a peer whose token the caller may not
-   * query.
+   * for a peer whose process ID has been reused, for a pipe opened from a handle or received over
+   * IPC, and for a peer whose token the caller may not query.
    */
   sid: string | null
 }
@@ -117,11 +117,12 @@ interface Pipe<M extends PipeEvents = PipeEvents> extends Duplex<M>, IPCAcceptab
    * `getpeereid()` and reflects the peer at the time it connected. On Windows the process ID comes
    * from `GetNamedPipeClientProcessId()` or `GetNamedPipeServerProcessId()`, and the SID from the
    * token of the process with that ID, unless that process was created after the pipe connected and
-   * so has reused the ID of a peer that exited. A client reports nothing unless it connected by a
-   * local `\\.\pipe\` name.
+   * so has reused the ID of a peer that exited. A client connected to a pipe on another machine
+   * reports nothing, and a pipe opened from a handle or received over IPC reports no SID.
    * @returns The peer's credentials.
    * @throws {PIPE_IS_CLOSED} the pipe is closed.
    * @throws {PIPE_NOT_CONNECTED} the pipe is not connected.
+   * @throws {ENOTSOCK} the pipe is not a socket, on Unix.
    */
   remoteCredentials(): PipeCredentials
 
@@ -190,7 +191,7 @@ interface PipeServer<M extends PipeServerEvents = PipeServerEvents> extends Even
    * @param onlistening - Called once when the server emits `'listening'`.
    * @throws {SERVER_ALREADY_LISTENING} the server is already listening.
    * @throws {SERVER_IS_CLOSED} the server has been closed.
-   * @throws {INVALID_ARGUMENT} `ownerOnly` was given for an abstract socket.
+   * @throws {INVALID_ARGUMENT} `ownerOnly` is not a boolean, or was given for an abstract socket.
    */
   listen(
     path: string,

@@ -622,6 +622,7 @@ exports.Server = class PipeServer extends EventEmitter {
 
     validatePath(path)
     validateInteger(backlog, 'Backlog', 0, 0x7fffffff)
+    validateBoolean(ownerOnly, 'Owner only')
 
     if (ownerOnly && (path === '' || path[0] === '\0')) {
       throw errors.INVALID_ARGUMENT('An abstract socket cannot be restricted to its owner')
@@ -646,7 +647,7 @@ exports.Server = class PipeServer extends EventEmitter {
     if (this._state & constants.state.UNREFED) binding.unref(this._handle)
 
     try {
-      binding.bind(this._handle, path, backlog, !!ownerOnly)
+      binding.bind(this._handle, path, backlog, ownerOnly)
 
       this._path = path
 
@@ -845,6 +846,12 @@ function validateInteger(value, name, min, max) {
     throw errors.INVALID_ARGUMENT(
       `${name} must be an integer between ${min} and ${max}, got ${value}`
     )
+  }
+}
+
+function validateBoolean(value, name) {
+  if (typeof value !== 'boolean') {
+    throw errors.INVALID_ARGUMENT(`${name} must be a boolean, got ${typeof value}`)
   }
 }
 

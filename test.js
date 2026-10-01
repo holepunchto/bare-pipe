@@ -1028,6 +1028,36 @@ test('socket, remote credentials on both ends', async (t) => {
   await new Promise((resolve) => server.close(resolve))
 })
 
+test('socket, remote credentials after the client writes', async (t) => {
+  const n = name()
+
+  let accepted = null
+  const server = Pipe.createServer()
+  const credentials = new Promise((resolve) => {
+    server.on('connection', (pipe) => {
+      accepted = pipe
+      pipe.once('data', () => resolve(pipe.remoteCredentials()))
+    })
+  })
+  server.listen(n)
+
+  const client = new Pipe(n)
+  await new Promise((resolve) => client.on('connect', resolve))
+
+  client.write('hello')
+
+  const seenByServer = await credentials
+
+  t.is(seenByServer.pid, Bare.pid, 'the server sees the client process')
+
+  if (isWindows) t.ok(/^S-1-5-/.test(seenByServer.sid), 'the server sees a user SID')
+
+  client.destroy()
+  accepted.destroy()
+
+  await new Promise((resolve) => server.close(resolve))
+})
+
 test('socket, remote credentials before connecting', (t) => {
   const pipe = new Pipe()
 
@@ -1068,8 +1098,9 @@ test('socket, remote credentials of an anonymous pipe', { skip: !isWindows }, (t
   const writer = new Pipe(write)
 
   t.is(reader.remoteCredentials().pid, Bare.pid, 'the server end sees the client process')
-  t.ok(/^S-1-5-/.test(reader.remoteCredentials().sid), 'the server end sees a user SID')
-  t.is(writer.remoteCredentials().pid, null, 'the client end has no name to prove it is local')
+  t.is(writer.remoteCredentials().pid, Bare.pid, 'the client end sees the server process')
+  t.is(reader.remoteCredentials().sid, null, 'the server end cannot tell when it connected')
+  t.is(writer.remoteCredentials().sid, null, 'the client end cannot tell when it connected')
 
   reader.destroy()
   writer.destroy()
@@ -1706,6 +1737,13 @@ test('server, listen owner only with a backlog', { skip: isWindows }, async (t) 
   t.is(fs.statSync(n).mode & 0o777, 0o600)
 
   await new Promise((resolve) => server.close(resolve))
+})
+
+test('server, listen owner only that is not a boolean', (t) => {
+  const server = Pipe.createServer()
+
+  t.exception(() => server.listen({ path: name(), ownerOnly: 'false' }), /INVALID_ARGUMENT/)
+  t.absent(server.listening)
 })
 
 test('server, listen owner only on an abstract socket', { skip: !isLinux }, (t) => {

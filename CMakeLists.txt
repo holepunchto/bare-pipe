@@ -11,3 +11,11 @@ target_sources(
   PRIVATE
     binding.c
 )
+
+if(WIN32)
+  target_link_libraries(
+    ${bare_pipe}
+    PRIVATE
+      ntdll
+  )
+endif()
