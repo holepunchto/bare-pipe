@@ -99,6 +99,25 @@ bare_pipe_acl__process_sid(DWORD pid, uint64_t connected, char **result) {
   return err;
 }
 
+// The kernel records the owner when the pipe is created, and a creator may only
+// name a SID from its own token, so the owner cannot be claimed by another user.
+static int
+bare_pipe_acl__owner_sid(HANDLE handle, char **result) {
+  PSID owner;
+  PSECURITY_DESCRIPTOR sd;
+
+  DWORD error = GetSecurityInfo(handle, SE_KERNEL_OBJECT, OWNER_SECURITY_INFORMATION, &owner, NULL, NULL, NULL, &sd);
+  if (error != ERROR_SUCCESS) return uv_translate_sys_error(error);
+
+  int err = 0;
+
+  if (!ConvertSidToStringSidA(owner, result)) err = uv_translate_sys_error(GetLastError());
+
+  LocalFree(sd);
+
+  return err;
+}
+
 static int
 bare_pipe_acl_restrict_to_owner(uv_pipe_t *handle, const char *path) {
   HANDLE token;
@@ -202,6 +221,17 @@ bare_pipe_acl_peer_credentials(uv_pipe_t *pipe, uint64_t connected, bare_pipe_ac
     if (error != ERROR_PIPE_LOCAL) return uv_translate_sys_error(error);
 
     if (!GetNamedPipeClientProcessId(handle, &pid)) return uv_translate_sys_error(GetLastError());
+
+    result->pid = pid;
+
+    // Without knowing when the pipe connected, a process that reused the ID of
+    // a peer that exited cannot be told apart from the peer.
+    if (connected == 0) return 0;
+
+    // A peer whose token the caller may not query, such as an elevated process
+    // seen from an unelevated one, or whose ID has been reused, reports no SID
+    // rather than failing.
+    if (bare_pipe_acl__process_sid(pid, connected, &result->sid) < 0) result->sid = NULL;
   } else {
     bool local;
     int err = bare_pipe_acl__is_local_pipe(handle, &local);
@@ -210,18 +240,14 @@ bare_pipe_acl_peer_credentials(uv_pipe_t *pipe, uint64_t connected, bare_pipe_ac
     if (!local) return 0;
 
     if (!GetNamedPipeServerProcessId(handle, &pid)) return uv_translate_sys_error(GetLastError());
+
+    result->pid = pid;
+
+    // The server's process ID names the process that created the instance,
+    // which need not be alive, so its ID may have been reused by the time the
+    // client connects. The owner of the pipe identifies the server instead.
+    if (bare_pipe_acl__owner_sid(handle, &result->sid) < 0) result->sid = NULL;
   }
-
-  result->pid = pid;
-
-  // Without knowing when the pipe connected, a process that reused the ID of a
-  // peer that exited cannot be told apart from the peer.
-  if (connected == 0) return 0;
-
-  // A peer whose token the caller may not query, such as an elevated process
-  // seen from an unelevated one, or whose ID has been reused, reports no SID
-  // rather than failing.
-  if (bare_pipe_acl__process_sid(pid, connected, &result->sid) < 0) result->sid = NULL;
 
   return 0;
 }

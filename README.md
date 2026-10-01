@@ -100,11 +100,15 @@ server.listen({ path, ownerOnly: true })
 
 What counts as valid credentials is up to the application, such as a `uid` matching the current user on Unix or a `sid` matching it on Windows.
 
-`ownerOnly` applies the restriction before the server listens. On Unix the socket file is made `0600`. On Windows the pipe gets a protected DACL that allows the current user and `SYSTEM` and denies network logons, which also rejects remote clients, and any client that opened the pipe before the DACL was applied is disconnected. Keep the socket in a directory only the current user can write to, so that its path cannot be replaced. An abstract socket has no file to restrict, so `ownerOnly` is rejected for one.
+`ownerOnly` applies the restriction before the server listens. On Unix the socket file is made `0600`, without following a symbolic link that replaced it. On Windows the pipe gets a protected DACL that allows the current user and `SYSTEM` and denies network logons, which also rejects remote clients, and any client that opened the pipe before the DACL was applied is disconnected. Keep the socket in a directory only the current user can write to, so that its path cannot be replaced. An abstract socket has no file to restrict, so `ownerOnly` is rejected for one.
 
 `pipe.remoteCredentials()` returns `{ pid, uid, gid, sid }`, with `null` for anything the platform cannot report. On Linux it reads `SO_PEERCRED`; on macOS and the BSDs `getpeereid()`, plus `LOCAL_PEERPID` on macOS. Read the credentials while the peer is connected: on macOS the process ID is no longer available once the peer has closed its end.
 
-On Windows the process ID comes from the pipe, and the user SID from the token of the process with that ID. A process created after the pipe connected has reused the ID of a peer that exited, and reports no SID. A client marks the connection before it connects, but a server can only mark it once it accepts, so a client that exits and has its ID reused while its connection waits to be accepted goes unnoticed. A pipe opened from a handle or received over IPC may have connected at any time, and so reports no SID. A remote peer reports no process ID or SID, since its process ID names a process on another machine.
+On Windows the process ID comes from the pipe. A remote peer reports no process ID or SID, since its process ID names a process on another machine.
+
+On the server end, the SID is the user of the client process with that ID: the user the process runs as, not one it impersonated while connecting. A process created after the pipe connected has reused the ID of a client that exited, and reports no SID. A server can only mark the connection once it accepts it, so a client that exits and has its ID reused while its connection waits to be accepted goes unnoticed. The same goes for a reuse after the system clock is set back, as process creation times are read from it. A server end opened from a handle or received over IPC may have connected at any time, and so reports no SID.
+
+On the client end, the process ID names the process that created the pipe, which may since have exited and had its ID reused. The SID is instead the owner of the pipe, which the kernel records when the server creates it, and which is the user of the server process, except for an elevated administrator, whose pipes are owned by the `Administrators` group (`S-1-5-32-544`).
 
 ## License
 

@@ -34,9 +34,11 @@ interface PipeCredentials {
   /** The peer's group ID on Unix; `null` on Windows. */
   gid: number | null
   /**
-   * The peer's user SID on Windows, such as `'S-1-5-21-...'`; `null` on Unix, for a remote peer,
-   * for a peer whose process ID has been reused, for a pipe opened from a handle or received over
-   * IPC, and for a peer whose token the caller may not query.
+   * The peer's user SID on Windows, such as `'S-1-5-21-...'`. On the server end it is the user the
+   * client process runs as, and on the client end the owner of the pipe, which is `'S-1-5-32-544'`
+   * for an elevated administrator. `null` on Unix, for a remote peer, for a client whose process ID
+   * has been reused, for a server end opened from a handle or received over IPC, and for a peer the
+   * caller may not query.
    */
   sid: string | null
 }
@@ -115,10 +117,11 @@ interface Pipe<M extends PipeEvents = PipeEvents> extends Duplex<M>, IPCAcceptab
    * The operating system's account of the process on the other end of the pipe, read from the
    * kernel rather than from anything the peer sent. On Unix it is taken from `SO_PEERCRED` or
    * `getpeereid()` and reflects the peer at the time it connected. On Windows the process ID comes
-   * from `GetNamedPipeClientProcessId()` or `GetNamedPipeServerProcessId()`, and the SID from the
-   * token of the process with that ID, unless that process was created after the pipe connected and
-   * so has reused the ID of a peer that exited. A client connected to a pipe on another machine
-   * reports nothing, and a pipe opened from a handle or received over IPC reports no SID.
+   * from `GetNamedPipeClientProcessId()` or `GetNamedPipeServerProcessId()`. On the server end the
+   * SID is taken from the primary token of the client process, not from any token it impersonated,
+   * unless that process was created after the pipe connected and so has reused the ID of a client
+   * that exited. On the client end the SID is the owner of the pipe. A peer on another machine
+   * reports nothing, and a server end opened from a handle or received over IPC reports no SID.
    * @returns The peer's credentials.
    * @throws {PIPE_IS_CLOSED} the pipe is closed.
    * @throws {PIPE_NOT_CONNECTED} the pipe is not connected.

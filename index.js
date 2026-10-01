@@ -618,7 +618,7 @@ exports.Server = class PipeServer extends EventEmitter {
 
     if (backlog === null || backlog === 0) backlog = 511
 
-    const { ownerOnly = false } = opts
+    const { ownerOnly = false } = opts || {}
 
     validatePath(path)
     validateInteger(backlog, 'Backlog', 0, 0x7fffffff)

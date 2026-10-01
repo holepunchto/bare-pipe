@@ -2,8 +2,10 @@
 #define BARE_PIPE_ACL_BSD_H
 
 #include <errno.h>
+#include <fcntl.h>
 #include <stdint.h>
 #include <sys/socket.h>
+#include <sys/stat.h>
 #include <unistd.h>
 #include <uv.h>
 
@@ -13,6 +15,20 @@
 
 #include "credentials.h"
 #include "unix.h"
+
+// Changed without following a symbolic link that replaced the socket. A socket
+// cannot be opened by its path, so it is checked by path once changed.
+static int
+bare_pipe_acl_restrict_to_owner(uv_pipe_t *handle, const char *path) {
+  if (fchmodat(AT_FDCWD, path, S_IRUSR | S_IWUSR, AT_SYMLINK_NOFOLLOW) != 0) return uv_translate_sys_error(errno);
+
+  struct stat st;
+  if (lstat(path, &st) != 0) return uv_translate_sys_error(errno);
+
+  if (!S_ISSOCK(st.st_mode)) return UV_ENOTSOCK;
+
+  return 0;
+}
 
 static int
 bare_pipe_acl_peer_credentials(uv_pipe_t *handle, uint64_t connected, bare_pipe_acl_credentials_t *result) {

@@ -609,10 +609,6 @@ bare_pipe_connect(js_env_t *env, js_callback_info_t *info) {
 
   req->data = pipe;
 
-  // Marked before connecting, as the server must be alive by the time the
-  // connection is made.
-  pipe->connected = bare_pipe_acl_timestamp();
-
   err = uv_pipe_connect2(req, &pipe->handle, (char *) path, path_len, UV_PIPE_NO_TRUNCATE, bare_pipe__on_connect);
 
   if (err < 0) {

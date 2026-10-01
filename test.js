@@ -1012,7 +1012,10 @@ test('socket, remote credentials on both ends', async (t) => {
 
   if (isWindows) {
     t.ok(/^S-1-5-/.test(seenByServer.sid), 'the server sees a user SID')
-    t.is(seenByClient.sid, seenByServer.sid, 'both ends name the same user')
+    t.ok(
+      seenByClient.sid === seenByServer.sid || seenByClient.sid === 'S-1-5-32-544',
+      'the client sees the owner of the pipe, the same user unless elevated'
+    )
     t.is(seenByServer.uid, null, 'no uid on Windows')
     t.is(seenByServer.gid, null, 'no gid on Windows')
   } else {
@@ -1070,7 +1073,7 @@ test('socket, remote credentials of an anonymous pipe', { skip: !isWindows }, (t
   t.is(reader.remoteCredentials().pid, Bare.pid, 'the server end sees the client process')
   t.is(writer.remoteCredentials().pid, Bare.pid, 'the client end sees the server process')
   t.is(reader.remoteCredentials().sid, null, 'the server end cannot tell when it connected')
-  t.is(writer.remoteCredentials().sid, null, 'the client end cannot tell when it connected')
+  t.ok(/^S-1-5-/.test(writer.remoteCredentials().sid), 'the client end sees the owner of the pipe')
 
   reader.destroy()
   writer.destroy()
@@ -1709,6 +1712,17 @@ test('server, listen owner only with a backlog', { skip: isWindows }, async (t) 
   await new Promise((resolve) => server.close(resolve))
 })
 
+test('server, listen with null options', async (t) => {
+  const server = Pipe.createServer()
+  server.listen(name(), 511, null)
+
+  await waitForListening(server)
+
+  t.ok(server.listening)
+
+  await new Promise((resolve) => server.close(resolve))
+})
+
 test('server, listen owner only that is not a boolean', (t) => {
   const server = Pipe.createServer()
 
@@ -1837,6 +1851,43 @@ test('ipc, pipe handle pass', { skip: isWindows }, (t) => {
         server.close()
       })
       received.write('ping')
+    })
+    .resume()
+
+  const peer = new Pipe(echo)
+  peer.on('connect', () => {
+    left.write(Buffer.from('here'), peer, () => {
+      t.pass('handle sent')
+      peer.destroy()
+    })
+  })
+})
+
+test('ipc, remote credentials of a received pipe', { skip: isWindows }, (t) => {
+  t.plan(3)
+
+  const echo = name()
+
+  const server = Pipe.createServer()
+  server.listen(echo)
+
+  const [a, b] = tcp.socketpair()
+
+  const left = new Pipe(a, { ipc: true })
+  const right = new Pipe(b, { ipc: true })
+
+  right
+    .on('handle', () => {
+      const received = right.accept(new Pipe())
+      const credentials = received.remoteCredentials()
+
+      t.ok(Number.isInteger(credentials.uid), 'the received pipe still reports its peer')
+      t.is(credentials.sid, null, 'no SID for a received pipe')
+
+      received.destroy()
+      left.destroy()
+      right.destroy()
+      server.close()
     })
     .resume()
 
