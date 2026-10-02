@@ -62,7 +62,7 @@ bare_pipe_acl__sid_string(PSID sid, char **result) {
 static int
 bare_pipe_acl__token_information(HANDLE token, TOKEN_INFORMATION_CLASS type, void **result) {
   DWORD len = 0;
-  GetTokenInformation(token, type, NULL, 0, &len);
+  if (GetTokenInformation(token, type, NULL, 0, &len)) return UV_EINVAL;
 
   DWORD error = GetLastError();
   if (error != ERROR_INSUFFICIENT_BUFFER) return uv_translate_sys_error(error);
@@ -175,6 +175,9 @@ bare_pipe_acl_restrict_to_owner(uv_pipe_t *handle, const char *path) {
 
   if (!GetSecurityDescriptorDacl(sd, &present, &dacl, &defaulted)) {
     err = uv_translate_sys_error(GetLastError());
+  } else if (!present || dacl == NULL) {
+    // A missing DACL would grant everyone full access.
+    err = UV_EINVAL;
   } else {
     // Applies to every instance of the pipe, as uv_pipe_chmod() relies on too.
     DWORD error = SetSecurityInfo(handle->handle, SE_KERNEL_OBJECT, DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION, NULL, NULL, dacl, NULL);

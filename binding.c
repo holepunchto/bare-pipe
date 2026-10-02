@@ -796,7 +796,7 @@ bare_pipe_accept(js_env_t *env, js_callback_info_t *info) {
 
     // Dropped rather than reported, so that a rejected peer cannot raise errors.
     if (server->owner_only) {
-      bool owner;
+      bool owner = false;
       accepted = bare_pipe_acl_is_owner_client(&pipe->handle, pipe->connected, &owner) == 0 && owner;
     }
   }
