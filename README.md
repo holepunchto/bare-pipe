@@ -109,7 +109,9 @@ On Windows the pipe gets a protected DACL that allows only the current user and 
 - A remote client.
 - A client whose process runs as a user other than that of the server or `SYSTEM`. The DACL alone admits these when they connect while impersonating the current user.
 - A client running at a lower integrity level than the server, such as an unelevated process seen from an elevated server or a sandboxed low integrity process. The DACL alone admits these, as they run as the same user.
-- A client whose process the server may not query, such as an elevated process or one running as `SYSTEM` seen from an unelevated server, or one that has exited.
+- A client whose process the server may not query, such as one running as `SYSTEM` seen from an unelevated server, or one that has exited.
+
+An elevated process of the current user is admitted by an unelevated server, as it runs as the same user at a higher integrity level.
 
 Keep the socket in a directory only the current user can write to, so that its path cannot be replaced. An abstract socket has no file to restrict, so `ownerOnly` is rejected for one.
 
@@ -121,7 +123,7 @@ On the server end, the SID is the user of the client process with that ID: the u
 
 - For a client that has exited, once nothing holds its process open. Read the credentials while the client is alive.
 - For a process created after the server accepted the connection, as it has reused the ID of a client that exited.
-- For a client process the server may not query, such as an elevated process seen from an unelevated server.
+- For a client process the server may not query, such as one running as `SYSTEM` seen from an unelevated server.
 - For a server end opened from a handle or received over IPC, as it may have connected at any time.
 
 The check for a reused ID, which `ownerOnly` also relies on, has two gaps. A client that exits and has its ID reused while its connection waits to be accepted goes unnoticed, and so does a reuse after the system clock is set back, as process creation times are read from it.
