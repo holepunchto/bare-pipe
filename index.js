@@ -101,6 +101,18 @@ module.exports = exports = class Pipe extends Duplex {
     return this._handle
   }
 
+  remoteCredentials() {
+    if (this._state & constants.state.CLOSING) {
+      throw errors.PIPE_IS_CLOSED('Pipe is closed')
+    }
+
+    if ((this._state & constants.state.CONNECTED) === 0) {
+      throw errors.PIPE_NOT_CONNECTED('Pipe is not connected')
+    }
+
+    return binding.remoteCredentials(this._handle)
+  }
+
   connect(path, opts = {}, onconnect) {
     if ((this._state & constants.state.CLOSING) !== 0 || this._error !== null) {
       throw errors.PIPE_IS_CLOSED('Pipe is closed')
@@ -606,8 +618,15 @@ exports.Server = class PipeServer extends EventEmitter {
 
     if (backlog === null || backlog === 0) backlog = 511
 
+    const { ownerOnly = false } = opts || {}
+
     validatePath(path)
     validateInteger(backlog, 'Backlog', 0, 0x7fffffff)
+    validateBoolean(ownerOnly, 'Owner only')
+
+    if (ownerOnly && (path === '' || path[0] === '\0')) {
+      throw errors.INVALID_ARGUMENT('An abstract socket cannot be restricted to its owner')
+    }
 
     this._state |= constants.state.BINDING
     this._state &= ~constants.state.CLOSED
@@ -628,7 +647,7 @@ exports.Server = class PipeServer extends EventEmitter {
     if (this._state & constants.state.UNREFED) binding.unref(this._handle)
 
     try {
-      binding.bind(this._handle, path, backlog)
+      binding.bind(this._handle, path, backlog, ownerOnly)
 
       this._path = path
 
@@ -713,7 +732,10 @@ exports.Server = class PipeServer extends EventEmitter {
     })
 
     try {
-      binding.accept(this._handle, pipe._handle)
+      if (!binding.accept(this._handle, pipe._handle)) {
+        pipe.destroy()
+        return
+      }
 
       pipe._path = this._path
 
@@ -827,6 +849,12 @@ function validateInteger(value, name, min, max) {
     throw errors.INVALID_ARGUMENT(
       `${name} must be an integer between ${min} and ${max}, got ${value}`
     )
+  }
+}
+
+function validateBoolean(value, name) {
+  if (typeof value !== 'boolean') {
+    throw errors.INVALID_ARGUMENT(`${name} must be a boolean, got ${typeof value}`)
   }
 }
 

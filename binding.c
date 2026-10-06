@@ -7,6 +7,14 @@
 #include <utf.h>
 #include <uv.h>
 
+#if defined(_WIN32)
+#include "lib/acl/win32.h"
+#elif defined(__linux__)
+#include "lib/acl/linux.h"
+#else
+#include "lib/acl/bsd.h"
+#endif
+
 typedef utf8_t bare_pipe_path_t[4096 + 1 /* NULL */];
 
 typedef struct {
@@ -32,6 +40,10 @@ typedef struct {
 
   bool closing;
   bool exiting;
+  bool listening;
+  bool owner_only;
+
+  uint64_t connected;
 
   js_deferred_teardown_t *teardown;
 } bare_pipe_t;
@@ -530,6 +542,10 @@ bare_pipe_init(js_env_t *env, js_callback_info_t *info) {
   pipe->env = env;
   pipe->closing = false;
   pipe->exiting = false;
+  pipe->listening = false;
+  pipe->owner_only = false;
+
+  pipe->connected = 0;
 
   size_t read_len;
   err = js_get_typedarray_info(env, argv[0], NULL, (void **) &pipe->read.base, &read_len, NULL, NULL);
@@ -605,13 +621,13 @@ static js_value_t *
 bare_pipe_bind(js_env_t *env, js_callback_info_t *info) {
   int err;
 
-  size_t argc = 3;
-  js_value_t *argv[3];
+  size_t argc = 4;
+  js_value_t *argv[4];
 
   err = js_get_callback_info(env, info, &argc, argv, NULL, NULL);
   assert(err == 0);
 
-  assert(argc == 3);
+  assert(argc == 4);
 
   bare_pipe_t *pipe;
   err = js_get_arraybuffer_info(env, argv[0], (void **) &pipe, NULL);
@@ -625,6 +641,10 @@ bare_pipe_bind(js_env_t *env, js_callback_info_t *info) {
   err = js_get_value_uint32(env, argv[2], &backlog);
   assert(err == 0);
 
+  bool owner_only;
+  err = js_get_value_bool(env, argv[3], &owner_only);
+  assert(err == 0);
+
   err = uv_pipe_bind2(&pipe->handle, (char *) path, path_len, UV_PIPE_NO_TRUNCATE);
 
   if (err < 0) {
@@ -634,12 +654,28 @@ bare_pipe_bind(js_env_t *env, js_callback_info_t *info) {
     return NULL;
   }
 
+  if (owner_only) {
+    err = bare_pipe_acl_restrict_to_owner(&pipe->handle, (char *) path);
+
+    if (err < 0) {
+      err = js_throw_error(env, uv_err_name(err), uv_strerror(err));
+      assert(err == 0);
+
+      return NULL;
+    }
+  }
+
   err = uv_listen((uv_stream_t *) &pipe->handle, (int) backlog, bare_pipe__on_connection);
 
   if (err < 0) {
     err = js_throw_error(env, uv_err_name(err), uv_strerror(err));
     assert(err == 0);
+
+    return NULL;
   }
+
+  pipe->listening = true;
+  pipe->owner_only = owner_only;
 
   return NULL;
 }
@@ -730,14 +766,46 @@ bare_pipe_accept(js_env_t *env, js_callback_info_t *info) {
     return NULL;
   }
 
+  size_t client_len;
+  err = js_get_arraybuffer_info(env, argv[1], NULL, &client_len);
+  assert(err == 0);
+
+  if (server->listening && (uv_handle_get_type((uv_handle_t *) client) != UV_NAMED_PIPE || client_len != sizeof(bare_pipe_t))) {
+    err = js_throw_error(env, uv_err_name(UV_EINVAL), uv_strerror(UV_EINVAL));
+    assert(err == 0);
+
+    return NULL;
+  }
+
   err = uv_accept((uv_stream_t *) &server->handle, client);
 
   if (err < 0) {
     err = js_throw_error(env, uv_err_name(err), uv_strerror(err));
     assert(err == 0);
+
+    return NULL;
   }
 
-  return NULL;
+  bool accepted = true;
+
+  // A pipe received over IPC may have connected at any time before.
+  if (server->listening) {
+    bare_pipe_t *pipe = (bare_pipe_t *) client;
+
+    pipe->connected = bare_pipe_acl_timestamp();
+
+    // Dropped rather than reported, so that a rejected peer cannot raise errors.
+    if (server->owner_only) {
+      bool owner = false;
+      accepted = bare_pipe_acl_is_owner_client(&pipe->handle, pipe->connected, &owner) == 0 && owner;
+    }
+  }
+
+  js_value_t *result;
+  err = js_get_boolean(env, accepted, &result);
+  assert(err == 0);
+
+  return result;
 }
 
 static js_value_t *
@@ -954,6 +1022,69 @@ bare_pipe_unref(js_env_t *env, js_callback_info_t *info) {
   return NULL;
 }
 
+static inline void
+bare_pipe__set_id(js_env_t *env, js_value_t *object, const char *name, int64_t id) {
+  int err;
+
+  js_value_t *val;
+
+  if (id < 0) err = js_get_null(env, &val);
+  else err = js_create_int64(env, id, &val);
+  assert(err == 0);
+
+  err = js_set_named_property(env, object, name, val);
+  assert(err == 0);
+}
+
+static js_value_t *
+bare_pipe_remote_credentials(js_env_t *env, js_callback_info_t *info) {
+  int err;
+
+  size_t argc = 1;
+  js_value_t *argv[1];
+
+  err = js_get_callback_info(env, info, &argc, argv, NULL, NULL);
+  assert(err == 0);
+
+  assert(argc == 1);
+
+  bare_pipe_t *pipe;
+  err = js_get_arraybuffer_info(env, argv[0], (void **) &pipe, NULL);
+  assert(err == 0);
+
+  bare_pipe_acl_credentials_t credentials = {-1, -1, -1, NULL};
+
+  err = bare_pipe_acl_peer_credentials(&pipe->handle, pipe->connected, &credentials);
+
+  if (err < 0) {
+    err = js_throw_error(env, uv_err_name(err), uv_strerror(err));
+    assert(err == 0);
+
+    return NULL;
+  }
+
+  js_value_t *result;
+  err = js_create_object(env, &result);
+  assert(err == 0);
+
+  bare_pipe__set_id(env, result, "pid", credentials.pid);
+  bare_pipe__set_id(env, result, "uid", credentials.uid);
+  bare_pipe__set_id(env, result, "gid", credentials.gid);
+
+  js_value_t *sid;
+
+  if (credentials.sid == NULL) err = js_get_null(env, &sid);
+  else err = js_create_string_utf8(env, (utf8_t *) credentials.sid, -1, &sid);
+  assert(err == 0);
+
+  err = js_set_named_property(env, result, "sid", sid);
+  assert(err == 0);
+
+  bare_pipe_acl_credentials_destroy(&credentials);
+
+  return result;
+}
+
 static js_value_t *
 bare_pipe_pipe(js_env_t *env, js_callback_info_t *info) {
   int err;
@@ -1015,6 +1146,7 @@ bare_pipe_exports(js_env_t *env, js_value_t *exports) {
   V("ref", bare_pipe_ref)
   V("unref", bare_pipe_unref)
   V("pipe", bare_pipe_pipe)
+  V("remoteCredentials", bare_pipe_remote_credentials)
 #undef V
 
 #define V(name, n) \

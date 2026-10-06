@@ -26,6 +26,20 @@ interface PipeOptions {
   readBufferSize?: number
 }
 
+interface PipeCredentials {
+  /** The peer's process ID, or `null` where the platform cannot report it. */
+  pid: number | null
+  /** The peer's user ID on Unix; `null` on Windows. */
+  uid: number | null
+  /** The peer's group ID on Unix; `null` on Windows. */
+  gid: number | null
+  /**
+   * The peer's user SID on Windows: the user of the client process on the server end, and the owner
+   * of the pipe on the client end. `null` on Unix and wherever the peer cannot be identified.
+   */
+  sid: string | null
+}
+
 interface PipeConnectOptions {
   path?: string
 }
@@ -96,6 +110,16 @@ interface Pipe<M extends PipeEvents = PipeEvents> extends Duplex<M>, IPCAcceptab
    */
   accept<T extends IPCAcceptable>(target: T): T
 
+  /**
+   * The operating system's account of the process on the other end of the pipe, read from the
+   * kernel rather than from anything the peer sent.
+   * @returns The peer's credentials.
+   * @throws {PIPE_IS_CLOSED} the pipe is closed.
+   * @throws {PIPE_NOT_CONNECTED} the pipe is not connected.
+   * @throws {ENOTSOCK} the pipe is not a socket, on Unix.
+   */
+  remoteCredentials(): PipeCredentials
+
   /** Ref the pipe, preventing the process from exiting. */
   ref(): this
   /** Unref the pipe, allowing the process to exit. */
@@ -134,6 +158,11 @@ interface PipeServerOptions {
 
 interface PipeServerListenOptions {
   backlog?: number
+  /**
+   * Restrict the pipe to the current user before any client can connect, and disconnect clients
+   * that the restriction alone would admit. Not supported for an abstract socket.
+   */
+  ownerOnly?: boolean
   path?: string
 }
 
@@ -155,6 +184,7 @@ interface PipeServer<M extends PipeServerEvents = PipeServerEvents> extends Even
    * @param onlistening - Called once when the server emits `'listening'`.
    * @throws {SERVER_ALREADY_LISTENING} the server is already listening.
    * @throws {SERVER_IS_CLOSED} the server has been closed.
+   * @throws {INVALID_ARGUMENT} `ownerOnly` is not a boolean, or was given for an abstract socket.
    */
   listen(
     path: string,
@@ -236,6 +266,7 @@ declare namespace Pipe {
     PipeError as errors,
     type IPCAcceptable,
     type PipeConnectOptions,
+    type PipeCredentials,
     type PipeEvents,
     type PipeOpenOptions,
     type PipeOptions,

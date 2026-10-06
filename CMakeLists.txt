@@ -11,3 +11,19 @@ target_sources(
   PRIVATE
     binding.c
 )
+
+if(WIN32)
+  target_link_libraries(
+    ${bare_pipe}
+    PRIVATE
+      ntdll
+  )
+endif()
+
+if(LINUX OR ANDROID)
+  target_compile_definitions(
+    ${bare_pipe}
+    PRIVATE
+      _GNU_SOURCE
+  )
+endif()

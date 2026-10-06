@@ -4,6 +4,7 @@ const tcp = require('bare-tcp')
 const Pipe = require('.')
 
 const isWindows = Bare.platform === 'win32'
+const isLinux = Bare.platform === 'linux' || Bare.platform === 'android'
 const ipcHandle = Symbol.for('bare.ipc.handle')
 
 test('server + client', async (t) => {
@@ -987,6 +988,114 @@ test('socket, immediate destroy', async (t) => {
   server.close()
 })
 
+test('socket, remote credentials on both ends', async (t) => {
+  const n = name()
+
+  let accepted = null
+  const server = Pipe.createServer()
+  const connection = new Promise((resolve) => {
+    server.on('connection', (pipe) => {
+      accepted = pipe
+      resolve(pipe.remoteCredentials())
+    })
+  })
+  server.listen(n)
+
+  const client = new Pipe(n)
+  await new Promise((resolve) => client.on('connect', resolve))
+
+  const seenByServer = await connection
+  const seenByClient = client.remoteCredentials()
+
+  t.is(seenByServer.pid, Bare.pid, 'the server sees the client process')
+  t.is(seenByClient.pid, Bare.pid, 'the client sees the server process')
+
+  if (isWindows) {
+    t.ok(/^S-1-5-/.test(seenByServer.sid), 'the server sees a user SID')
+    t.ok(
+      seenByClient.sid === seenByServer.sid || seenByClient.sid === 'S-1-5-32-544',
+      'the client sees the owner of the pipe, the same user unless elevated'
+    )
+    t.is(seenByServer.uid, null, 'no uid on Windows')
+    t.is(seenByServer.gid, null, 'no gid on Windows')
+  } else {
+    t.ok(Number.isInteger(seenByServer.uid) && seenByServer.uid >= 0, 'the server sees a uid')
+    t.ok(Number.isInteger(seenByServer.gid) && seenByServer.gid >= 0, 'the server sees a gid')
+    t.alike(seenByClient, seenByServer, 'both ends see the same account')
+    t.is(seenByServer.sid, null, 'no SID on Unix')
+  }
+
+  client.destroy()
+  accepted.destroy()
+
+  await new Promise((resolve) => server.close(resolve))
+})
+
+test('socket, remote credentials before connecting', (t) => {
+  const pipe = new Pipe()
+
+  t.exception(() => pipe.remoteCredentials(), /PIPE_NOT_CONNECTED/)
+
+  pipe.destroy()
+})
+
+test('socket, remote credentials after a failed connect', async (t) => {
+  const pipe = new Pipe(name())
+
+  await new Promise((resolve) => pipe.on('error', resolve))
+
+  t.exception(() => pipe.remoteCredentials(), /PIPE_IS_CLOSED/)
+})
+
+test('socket, remote credentials of a pipe that is not a socket', { skip: isWindows }, (t) => {
+  const [read, write] = Pipe.pipe()
+
+  const reader = new Pipe(read)
+  const writer = new Pipe(write)
+
+  try {
+    reader.remoteCredentials()
+    t.fail('a pipe that is not a socket has no peer')
+  } catch (err) {
+    t.is(err.code, 'ENOTSOCK')
+  }
+
+  reader.destroy()
+  writer.destroy()
+})
+
+test('socket, remote credentials of an anonymous pipe', { skip: !isWindows }, (t) => {
+  const [read, write] = Pipe.pipe()
+
+  const reader = new Pipe(read)
+  const writer = new Pipe(write)
+
+  t.is(reader.remoteCredentials().pid, Bare.pid, 'the server end sees the client process')
+  t.is(writer.remoteCredentials().pid, Bare.pid, 'the client end sees the server process')
+  t.is(reader.remoteCredentials().sid, null, 'the server end cannot tell when it connected')
+  t.ok(/^S-1-5-/.test(writer.remoteCredentials().sid), 'the client end sees the owner of the pipe')
+
+  reader.destroy()
+  writer.destroy()
+})
+
+test('socket, remote credentials after destroy', async (t) => {
+  const n = name()
+
+  const server = Pipe.createServer()
+  server.on('connection', (pipe) => pipe.destroy())
+  server.listen(n)
+
+  const client = new Pipe(n)
+  await new Promise((resolve) => client.on('connect', resolve))
+
+  client.destroy()
+
+  t.exception(() => client.remoteCredentials(), /PIPE_IS_CLOSED/)
+
+  await new Promise((resolve) => server.close(resolve))
+})
+
 test('server, connection listener as the only argument', async (t) => {
   t.plan(2)
 
@@ -1564,6 +1673,74 @@ test('server, ref and unref', async (t) => {
   await new Promise((resolve) => server.close(resolve))
 })
 
+test('server, listen owner only', async (t) => {
+  const n = name()
+
+  const server = Pipe.createServer((pipe) => pipe.end('hello'))
+  server.listen({ path: n, ownerOnly: true })
+
+  await waitForListening(server)
+
+  if (!isWindows) t.is(fs.statSync(n).mode & 0o777, 0o600, 'the socket is private to its owner')
+
+  const client = new Pipe(n)
+  const data = await new Promise((resolve, reject) => {
+    client.on('data', resolve).on('error', reject)
+  })
+
+  t.alike(data, Buffer.from('hello'), 'the owner can still connect')
+
+  if (isWindows) {
+    t.ok(/^S-1-5-/.test(client.remoteCredentials().sid), 'the server runs as a user SID')
+  }
+
+  client.destroy()
+
+  await new Promise((resolve) => server.close(resolve))
+})
+
+test('server, listen owner only with a backlog', { skip: isWindows }, async (t) => {
+  const n = name()
+
+  const server = Pipe.createServer()
+  server.listen(n, 16, { ownerOnly: true })
+
+  await waitForListening(server)
+
+  t.is(fs.statSync(n).mode & 0o777, 0o600)
+
+  await new Promise((resolve) => server.close(resolve))
+})
+
+test('server, listen with null options', async (t) => {
+  const server = Pipe.createServer()
+  server.listen(name(), 511, null)
+
+  await waitForListening(server)
+
+  t.ok(server.listening)
+
+  await new Promise((resolve) => server.close(resolve))
+})
+
+test('server, listen owner only that is not a boolean', (t) => {
+  const server = Pipe.createServer()
+
+  t.exception(() => server.listen({ path: name(), ownerOnly: 'false' }), /INVALID_ARGUMENT/)
+  t.absent(server.listening)
+})
+
+test('server, listen owner only on an abstract socket', { skip: !isLinux }, (t) => {
+  const server = Pipe.createServer()
+
+  t.exception(
+    () => server.listen({ path: '\0' + name().slice(5), ownerOnly: true }),
+    /INVALID_ARGUMENT/,
+    'an abstract socket has no mode to restrict'
+  )
+  t.absent(server.listening)
+})
+
 test('createConnection, arguments', async (t) => {
   t.plan(5)
 
@@ -1674,6 +1851,43 @@ test('ipc, pipe handle pass', { skip: isWindows }, (t) => {
         server.close()
       })
       received.write('ping')
+    })
+    .resume()
+
+  const peer = new Pipe(echo)
+  peer.on('connect', () => {
+    left.write(Buffer.from('here'), peer, () => {
+      t.pass('handle sent')
+      peer.destroy()
+    })
+  })
+})
+
+test('ipc, remote credentials of a received pipe', { skip: isWindows }, (t) => {
+  t.plan(3)
+
+  const echo = name()
+
+  const server = Pipe.createServer()
+  server.listen(echo)
+
+  const [a, b] = tcp.socketpair()
+
+  const left = new Pipe(a, { ipc: true })
+  const right = new Pipe(b, { ipc: true })
+
+  right
+    .on('handle', () => {
+      const received = right.accept(new Pipe())
+      const credentials = received.remoteCredentials()
+
+      t.ok(Number.isInteger(credentials.uid), 'the received pipe still reports its peer')
+      t.is(credentials.sid, null, 'no SID for a received pipe')
+
+      received.destroy()
+      left.destroy()
+      right.destroy()
+      server.close()
     })
     .resume()
 
