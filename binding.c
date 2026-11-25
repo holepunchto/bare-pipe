@@ -7,6 +7,11 @@
 #include <utf.h>
 #include <uv.h>
 
+#if !defined(_WIN32)
+#include <sys/socket.h>
+#include <sys/stat.h>
+#endif
+
 #if defined(_WIN32)
 #include "lib/acl/win32.h"
 #elif defined(__linux__)
@@ -680,6 +685,50 @@ bare_pipe_bind(js_env_t *env, js_callback_info_t *info) {
   return NULL;
 }
 
+#if !defined(_WIN32)
+static bool
+bare_pipe__maybe_unix_stream(int fd) {
+  int value;
+  socklen_t len = sizeof(value);
+
+  if (getsockopt(fd, SOL_SOCKET, SO_TYPE, &value, &len) == -1) return true;
+
+  if (value != SOCK_STREAM) return false;
+
+#if defined(SO_DOMAIN)
+  len = sizeof(value);
+
+  if (getsockopt(fd, SOL_SOCKET, SO_DOMAIN, &value, &len) == 0 && value != AF_UNIX) return false;
+#endif
+
+  return true;
+}
+#endif
+
+static int
+bare_pipe__check_fd(uv_file fd) {
+  uv_handle_type type = uv_guess_handle(fd);
+
+  if (type == UV_NAMED_PIPE) return 0;
+
+  uv_fs_t req;
+  int err = uv_fs_fstat(NULL, &req, fd, NULL);
+
+#if !defined(_WIN32)
+  bool is_socket = err >= 0 && S_ISSOCK(req.statbuf.st_mode);
+#endif
+
+  uv_fs_req_cleanup(&req);
+
+  if (err < 0) return err;
+
+#if !defined(_WIN32)
+  if (type == UV_UNKNOWN_HANDLE && is_socket && bare_pipe__maybe_unix_stream(fd)) return 0;
+#endif
+
+  return UV_EINVAL;
+}
+
 static js_value_t *
 bare_pipe_open(js_env_t *env, js_callback_info_t *info) {
   int err;
@@ -700,16 +749,9 @@ bare_pipe_open(js_env_t *env, js_callback_info_t *info) {
   err = js_get_value_int32(env, argv[1], &fd);
   assert(err == 0);
 
-  uv_handle_type type = uv_guess_handle((uv_file) fd);
+  err = bare_pipe__check_fd((uv_file) fd);
 
-  if (type == UV_FILE || type == UV_UNKNOWN_HANDLE) {
-    uv_fs_t req;
-    err = uv_fs_fstat(NULL, &req, (uv_file) fd, NULL);
-
-    uv_fs_req_cleanup(&req);
-
-    if (err >= 0) err = UV_EINVAL;
-
+  if (err < 0) {
     err = js_throw_error(env, uv_err_name(err), uv_strerror(err));
     assert(err == 0);
 
